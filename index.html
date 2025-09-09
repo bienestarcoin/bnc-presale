@@ -7,9 +7,11 @@
   <meta name="description" content="Preventa oficial de Bienestar Coin (BNC) en BNB Smart Chain. 1 USDT = 20 BNC." />
 
   <!-- Ethers.js v5 -->
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <!-- WalletConnect v2 (UMD correcto) -->
-  <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js" defer></script>
+
+  <!-- Opcional: mejoras de red para los CDNs -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
   <style>
     :root{
@@ -54,9 +56,7 @@
     .status{margin-top:12px; font-size:14px} .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.err{color:var(--err)}
     footer{ width:100%; max-width:980px; padding:8px 16px 24px; color:var(--muted); font-size:13px }
     code.addr{color:#ffd166}
-    .mini{
-      font-size:13px; color:var(--muted); display:grid; grid-template-columns: auto 1fr; gap:6px 12px;
-    }
+    .mini{ font-size:13px; color:var(--muted); display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
     .oktag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#0f1a14; border:1px solid rgba(110,231,183,.35); color:var(--ok); font-size:12px; }
     .notag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#1a1410; border:1px solid rgba(245,158,11,.35); color:var(--warn); font-size:12px; }
     .btn[disabled]{ opacity:.6; cursor:not-allowed; }
@@ -129,9 +129,7 @@ const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token 
 const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec en BSC-PEG)
 const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
 const CHAIN_ID     = 56;                                               // BSC Mainnet
-
-/* WalletConnect Project ID (TU ID REAL) */
-const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
+const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";              // Tu Project ID
 
 /* ===== ABIs mínimos ===== */
 const ERC20_ABI = [
@@ -174,6 +172,50 @@ function fmtLocaleFromUnits(bn, dec){
   }catch{ return "—"; }
 }
 
+/* ========= CARGADOR ROBUSTO DE WALLETCONNECT (UMD) ========= */
+function getWCEthereumProviderInit(){
+  if(window.WalletConnectProvider?.EthereumProvider?.init) return window.WalletConnectProvider.EthereumProvider.init;
+  if(window.WalletConnectProvider?.default?.init)         return window.WalletConnectProvider.default.init;
+  if(window.WalletConnectEthereumProvider?.init)          return window.WalletConnectEthereumProvider.init;
+  if(window.EthereumProvider?.init)                       return window.EthereumProvider.init;
+  return null;
+}
+
+function loadScriptOnce(src){
+  return new Promise((resolve,reject)=>{
+    // si ya existe exactamente ese src, resolvemos
+    const existing=[...document.scripts].find(s=>s.src===src);
+    if(existing){ existing.addEventListener('load',()=>resolve()); existing.addEventListener('error',()=>reject(new Error('load error'))); if(existing.readyState==='complete') resolve(); return; }
+    const s=document.createElement('script');
+    s.src=src; s.async=true; s.defer=true; s.crossOrigin='anonymous';
+    s.onload=()=>resolve();
+    s.onerror=()=>reject(new Error('error: '+src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureWalletConnectUMD(){
+  // si ya está disponible, salimos
+  if (getWCEthereumProviderInit()) return true;
+
+  // intentamos jsDelivr (versión fijada)
+  const cdn1 = "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
+  // fallback a unpkg
+  const cdn2 = "https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
+
+  try{
+    await loadScriptOnce(cdn1);
+  }catch(_){}
+  // si tras jsDelivr sigue sin estar, probamos unpkg
+  if(!getWCEthereumProviderInit()){
+    try{ await loadScriptOnce(cdn2); }catch(_){}
+  }
+
+  // resultado final:
+  return !!getWCEthereumProviderInit();
+}
+/* ========================================================= */
+
 /* ===== Detectar proveedor inyectado ===== */
 function getInjectedProvider(){
   if(!window.ethereum) return null;
@@ -183,21 +225,17 @@ function getInjectedProvider(){
   return window.ethereum;
 }
 
-/* ===== WalletConnect init (detecta UMD) ===== */
-function getWCEthereumProviderInit(){
-  if(window.WalletConnectProvider?.EthereumProvider?.init) return window.WalletConnectProvider.EthereumProvider.init;
-  if(window.WalletConnectProvider?.default?.init)         return window.WalletConnectProvider.default.init;
-  if(window.WalletConnectEthereumProvider?.init)          return window.WalletConnectEthereumProvider.init;
-  if(window.EthereumProvider?.init)                       return window.EthereumProvider.init;
-  return null;
-}
+/* ===== WalletConnect init usando el cargador robusto ===== */
 async function initWC(){
   if(wcProvider) return wcProvider;
-  const wcInit=getWCEthereumProviderInit();
-  if(!wcInit) throw new Error("No se encontró WalletConnect EthereumProvider (UMD). Revisa la etiqueta <script>.");
-  wcProvider=await wcInit({
+
+  const ok = await ensureWalletConnectUMD();
+  if(!ok) throw new Error("No se encontró WalletConnect EthereumProvider (UMD). Revisa bloqueos del navegador.");
+
+  const wcInit = getWCEthereumProviderInit(); // ya debe existir
+  wcProvider = await wcInit({
     projectId: WC_PROJECT_ID,
-    chains: [CHAIN_ID],
+    chains: [56],
     rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
     showQrModal: true,
     methods: [
@@ -247,7 +285,7 @@ async function connectWalletUniversal(){
     }
     $("chainName").textContent=chainName(net.chainId);
 
-    // Listeners básicos
+    // Listeners
     provider.provider?.on?.("accountsChanged",(a)=>{ if(a&&a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); }});
     provider.provider?.on?.("chainChanged",async (cid)=>{ $("chainName").textContent=chainName(Number(cid)); await refreshBalances(); });
     provider.provider?.on?.("disconnect",()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
@@ -302,7 +340,7 @@ async function loadOnchainParams(){
     USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
     BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
 
-    // rate() devuelve entero plano (p.ej. 20). Escalamos a 1e18 para el cálculo.
+    // rate() plano -> escalar a 1e18
     const r = await sale.rate().catch(()=>ethers.constants.Zero);
     RATE_SCALED = r.gt(0) ? r.mul(ethers.constants.WeiPerEther) : ethers.utils.parseUnits("20", 18);
   }catch(e){
@@ -317,12 +355,10 @@ function onUsdtInput(){
 
   const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
 
-  // USDT a unidades con sus decimales (sin floats)
   let usdtWei;
   try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
   catch{ $("bncOutput").value="0"; updateApprovalUI(null); return; }
 
-  // Ajuste por diferencia de decimales entre USDT y BNC
   let tokensWei;
   if (BNC_DEC >= USDT_DEC) {
     const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
@@ -335,7 +371,6 @@ function onUsdtInput(){
   const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
   $("bncOutput").value = isFinite(pretty) ? pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 }) : "0";
 
-  // Actualiza UI de aprobación con el requerido actual (usdtWei)
   updateApprovalUI(usdtWei);
 }
 
@@ -343,7 +378,7 @@ function onUsdtInput(){
 async function refreshBalances(){
   try{
     if (!provider || !account) { resetMini(); return; }
-    const rpc = provider; // ya conectado
+    const rpc = provider;
     const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
     USDT_BAL   = await usdt.balanceOf(account);
     USDT_ALLOW = await usdt.allowance(account, ADDR_PRESALE);
@@ -351,7 +386,6 @@ async function refreshBalances(){
     $("miniBalance").textContent  = fmtLocaleFromUnits(USDT_BAL, USDT_DEC) + " USDT";
     $("miniAllowance").textContent= fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT";
 
-    // Reevaluar con el input actual
     const v = $("usdtInput").value.trim();
     const req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
     updateApprovalUI(req);
@@ -385,7 +419,7 @@ function updateApprovalUI(requiredWei){
 
     if (enoughAllowance) {
       $("miniApproveState").innerHTML = '<span class="oktag">Aprobación lista ✓</span>';
-      $("btnBuy").disabled = !enoughBalance; // si no alcanza balance, no dejar comprar
+      $("btnBuy").disabled = !enoughBalance;
     } else {
       $("miniApproveState").innerHTML = '<span class="notag">Falta aprobar</span>';
       $("btnBuy").disabled = true;
@@ -422,8 +456,7 @@ async function approveUSDT(){
     // Actualiza allowance y UI
     USDT_ALLOW = await usdt.allowance(account, ADDR_PRESALE);
     $("miniAllowance").textContent= fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT";
-    const req = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
-    updateApprovalUI(req);
+    updateApprovalUI(amt);
   }catch(err){
     const m = err?.data?.message || err?.message || "Fallo al aprobar USDT.";
     setStatus(m, "err");
@@ -449,7 +482,6 @@ async function buyBNC(){
     if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
     if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
 
-    // Verifica allowance suficiente antes de enviar
     if (USDT_ALLOW.lt(amt)) {
       setStatus("Falta aprobar suficiente USDT para este monto.", "warn");
       return;
@@ -462,14 +494,12 @@ async function buyBNC(){
     await tx.wait();
     setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
 
-    // Actualiza balances tras compra
     await refreshBalances();
   }catch(err){
     const m = err?.data?.message || err?.message || "La compra no se pudo completar.";
     setStatus(m, "err");
     console.error(err);
   }finally{
-    // Re-evalúa si debe seguir deshabilitado
     const v = $("usdtInput").value.trim();
     const req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
     updateApprovalUI(req);
