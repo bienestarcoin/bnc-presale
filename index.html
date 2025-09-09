@@ -60,7 +60,6 @@
 <body>
 
   <header>
-    <!-- Sube logo.png a la raíz del repo -->
     <img class="logo" src="./logo.png" alt="BNC" />
     <div>
       <h1>Bienestar Coin (BNC) – Preventa Oficial</h1>
@@ -116,7 +115,7 @@ const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT B
 const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
 const CHAIN_ID     = 56;                                               // BSC Mainnet
 
-/* WalletConnect Project ID -> PON EL TUYO */
+/* WalletConnect Project ID (ya pusiste el tuyo) */
 const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
 
 /* ===== ABIs mínimos ===== */
@@ -126,7 +125,6 @@ const ERC20_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)"
 ];
-
 const PRESALE_ABI = [
   "function buyWithUSDT(uint256 usdtAmount) external",
   "function minUSDT() view returns (uint256)",
@@ -139,7 +137,7 @@ const PRESALE_ABI = [
 let provider, signer, account = null;
 let web3Modal, wcProvider;
 let USDT_DEC = 18, BNC_DEC = 18;                // se leerán en runtime
-let RATE_SCALED = ethers.BigNumber.from("0");   // se leerá de la preventa
+let RATE_SCALED = ethers.BigNumber.from("0");   // tokens por 1 USDT, escalado 1e18
 
 /* ===== UI helpers ===== */
 const $ = (id) => document.getElementById(id);
@@ -155,9 +153,6 @@ function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC 
 /* ===== Inicializa WalletConnect modal ===== */
 async function initModal(){
   if (web3Modal) return;
-  if (!WC_PROJECT_ID || WC_PROJECT_ID === "b4feca4564a2101fb8925873d5186274"){
-    setStatus("Falta configurar WalletConnect Project ID.", "warn");
-  }
   wcProvider = await window.WalletConnectEthereumProvider.init({
     projectId: WC_PROJECT_ID,
     chains: [CHAIN_ID],
@@ -188,7 +183,6 @@ async function connectWallet(){
     const net = await provider.getNetwork();
     $("chainName").textContent = chainName(net.chainId);
 
-    // listeners
     wcProvider?.on("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
     wcProvider?.on("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
     wcProvider?.on("disconnect", resetConn);
@@ -198,9 +192,7 @@ async function connectWallet(){
 
     setStatus("Wallet conectada.", "ok");
 
-    // Carga parámetros on-chain (decimales y rate)
     await loadOnchainParams();
-    // Actualiza conversión si ya hay input
     onUsdtInput();
   }catch(e){
     console.error(e);
@@ -244,21 +236,29 @@ async function loadOnchainParams(){
     BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
     const r  = await sale.rate().catch(()=>ethers.constants.Zero);
     if (r.gt(0)) RATE_SCALED = r;
-
-  }catch(e){ console.warn("No se pudo leer parámetros on-chain, usando defaults."); }
+  }catch(e){
+    console.warn("No se pudo leer parámetros on-chain, usando defaults.");
+  }
 }
 
 /* ===== Cálculo en vivo (USDT -> BNC) ===== */
 function onUsdtInput(){
   const v = $("usdtInput").value.trim();
   if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
-  // Si aún no pudimos leer rate(), usa 20e18 como fallback
+
+  // rate escalado (1e18). Fallback = 20e18
   const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
-  // usdt a unidades (18)
+
+  // USDT a unidades con sus decimales
   let amt;
   try{ amt = ethers.utils.parseUnits(v, USDT_DEC); }catch{ $("bncOutput").value="0"; return; }
+
+  // tokens = usdtAmount * rate / 1e18
   const tokens = amt.mul(rateScaled).div(ethers.constants.WeiPerEther);
-  $("bncOutput").value = ethers.utils.formatUnits(tokens, BNC_DEC);
+
+  // Mostrar con decimales de BNC y formateado
+  const pretty = Number(ethers.utils.formatUnits(tokens, BNC_DEC));
+  $("bncOutput").value = pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 });
 }
 
 /* ===== Aprobar USDT ===== */
@@ -323,7 +323,7 @@ $("usdtInput").addEventListener("input", onUsdtInput);
 $("btnApprove").addEventListener("click", approveUSDT);
 $("btnBuy").addEventListener("click", buyBNC);
 
-// Inicial: intentar precargar params (rate/decimals) por RPC público y preparar cálculo
+// Precarga (rate/decimals) y prepara cálculo inicial
 loadOnchainParams().then(onUsdtInput);
 </script>
 </body>
