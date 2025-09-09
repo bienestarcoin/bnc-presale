@@ -8,8 +8,8 @@
 
   <!-- Ethers.js v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <!-- WalletConnect v2 (provider EIP-1193) -->
-  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2/dist/index.umd.js"></script>
+  <!-- WalletConnect v2 (UMD correcto) -->
+  <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"></script>
 
   <style>
     :root{
@@ -71,8 +71,8 @@
       <div style="display:flex; flex-direction:column; gap:12px">
         <div class="row">
           <button id="btnConnect"   class="btn">Conectar Wallet</button>
-          <button id="btnConnectWC" class="btn alt" title="Escanear QR con tu wallet">WalletConnect</button>
-          <button id="btnSwitch"    class="btn alt" title="Cambiar a BNB Smart Chain">Cambiar a BSC</button>
+          <button id="btnConnectWC" class="btn alt">WalletConnect</button>
+          <button id="btnSwitch"    class="btn alt">Cambiar a BSC</button>
         </div>
 
         <div class="row">
@@ -107,18 +107,13 @@
   <footer>© Bienestar Coin · Esta dApp es de preventa. Revisa siempre la dirección de contrato.</footer>
 
 <script>
-/* =========================
-   CONFIGURACIÓN DEL PROYECTO
-   ========================= */
-const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC (BEP-20)
-const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec en BSC-PEG)
-const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
-const CHAIN_ID     = 56;                                               // BSC Mainnet
+/* CONFIGURACIÓN */
+const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";
+const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";
+const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";
+const CHAIN_ID     = 56;
+const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274"; // cambia por tu Project ID real
 
-/* WalletConnect Project ID — CAMBIA ESTO POR EL TUYO */
-const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
-
-/* ===== ABIs mínimos ===== */
 const ERC20_ABI = [
   "function decimals() view returns (uint8)",
   "function balanceOf(address) view returns (uint256)",
@@ -130,265 +125,82 @@ const PRESALE_ABI = [
   "function minUSDT() view returns (uint256)",
   "function maxUSDT() view returns (uint256)",
   "function hardCapUSDT() view returns (uint256)",
-  "function rate() view returns (uint256)" // 1 USDT => rate BNC (entero)
+  "function rate() view returns (uint256)"
 ];
 
-/* ===== Estado de la app ===== */
-let provider, signer, account = null;
-let wcProvider;
-let USDT_DEC = 18, BNC_DEC = 18;
+let provider, signer, account, wcProvider;
+let USDT_DEC=18, BNC_DEC=18;
 let RATE_SCALED = ethers.utils.parseUnits("20", 18);
 
-/* ===== UI helpers ===== */
-const $ = (id) => document.getElementById(id);
-const statusEl = $("status");
-$("addrBNC").textContent     = ADDR_BNC;
-$("addrUSDT").textContent    = ADDR_USDT;
-$("addrPresale").textContent = ADDR_PRESALE;
+const $ = (id)=>document.getElementById(id);
+function setStatus(msg,type=""){ $("status").textContent="Estado: "+msg; $("status").className="status "+(type||""); }
+function shortAddr(a){ return a?a.slice(0,6)+"…"+a.slice(-4):"–"; }
+function chainName(id){ return Number(id)===56?"BSC":Number(id)===97?"BSC Testnet":"Chain "+id; }
 
-function setStatus(msg, type=""){ statusEl.textContent = "Estado: " + msg; statusEl.className="status "+(type||""); }
-function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
-function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
-
-/* ===== Detectar proveedor inyectado ===== */
-function getInjectedProvider() {
-  if (!window.ethereum) return null;
-  if (window.ethereum.providers?.length) {
-    const mm = window.ethereum.providers.find(p => p.isMetaMask) || window.ethereum.providers[0];
-    return mm;
+/* Detectar proveedor inyectado */
+function getInjectedProvider(){
+  if(!window.ethereum) return null;
+  if(window.ethereum.providers?.length){
+    return window.ethereum.providers.find(p=>p.isMetaMask)||window.ethereum.providers[0];
   }
   return window.ethereum;
 }
 
-/* ===== Inicializa WalletConnect ===== */
+/* WalletConnect init */
+function getWCEthereumProviderInit(){
+  if(window.WalletConnectProvider?.EthereumProvider?.init) return window.WalletConnectProvider.EthereumProvider.init;
+  if(window.WalletConnectProvider?.default?.init) return window.WalletConnectProvider.default.init;
+  if(window.WalletConnectEthereumProvider?.init) return window.WalletConnectEthereumProvider.init;
+  if(window.EthereumProvider?.init) return window.EthereumProvider.init;
+  return null;
+}
 async function initWC(){
-  if (wcProvider) return wcProvider;
-  if (!WC_PROJECT_ID || WC_PROJECT_ID.length < 10) {
-    throw new Error("WalletConnect sin Project ID. Configura WC_PROJECT_ID.");
-  }
-  wcProvider = await window.WalletConnectEthereumProvider.init({
+  if(wcProvider) return wcProvider;
+  const wcInit=getWCEthereumProviderInit();
+  if(!wcInit) throw new Error("No se encontró el EthereumProvider de WalletConnect.");
+  wcProvider=await wcInit({
     projectId: WC_PROJECT_ID,
-    chains: [CHAIN_ID],
-    optionalChains: [56, 97],
-    showQrModal: true,
-    rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
-    methods: [
-      "eth_sendTransaction","personal_sign","eth_signTypedData",
-      "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
-    ],
-    events: ["chainChanged","accountsChanged","disconnect"]
+    chains:[CHAIN_ID],
+    rpcMap:{56:"https://bsc-dataseed.binance.org/"},
+    showQrModal:true
   });
   return wcProvider;
 }
 
-/* ===== Leer parámetros on-chain ===== */
-async function loadOnchainParams(){
-  try{
-    const rpc = provider ?? new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
-    const usdt  = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
-    const bnc   = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
-    const sale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
-
-    USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
-    BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
-
-    const r = await sale.rate().catch(()=>ethers.constants.Zero);
-    RATE_SCALED = r.gt(0) ? r.mul(ethers.constants.WeiPerEther) : ethers.utils.parseUnits("20", 18);
-  }catch(e){ /* deja defaults */ }
-}
-
-/* ===== Mostrar cotización ===== */
-function onUsdtInput(){
-  const v = $("usdtInput").value.trim();
-  if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
-
-  const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
-  let usdtWei;
-  try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
-  catch{ $("bncOutput").value="0"; return; }
-
-  let tokensWei;
-  if (BNC_DEC >= USDT_DEC) {
-    const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
-    tokensWei = usdtWei.mul(rateScaled).mul(scale).div(ethers.constants.WeiPerEther);
-  } else {
-    const scale = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
-    tokensWei = usdtWei.mul(rateScaled).div(scale).div(ethers.constants.WeiPerEther);
-  }
-  const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
-  $("bncOutput").value = pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 });
-}
-
-/* ===== Mapear errores del proveedor a mensajes claros ===== */
-function humanizeProviderError(e){
-  const msg = e?.data?.message || e?.message || String(e);
-  if (/user rejected|denied|rejected request/i.test(msg)) return "Solicitud rechazada por el usuario.";
-  if (/invalid project|project id|403/i.test(msg)) return "WalletConnect: Project ID inválido o no autorizado.";
-  if (/No Ethereum provider|Provider not found|window\.ethereum/i.test(msg)) return "No se detecta wallet inyectada. Usa el botón WalletConnect.";
-  if (/Unsupported chain|chainId/i.test(msg)) return "Red no soportada. Cambia a BSC (56).";
-  return msg;
-}
-
-/* ===== Conectar (inyectado) ===== */
+/* Conectar inyectado */
 async function connectInjected(){
   try{
-    setStatus("Conectando wallet inyectada…", "warn");
-    const injected = getInjectedProvider();
-    if (!injected) throw new Error("No hay proveedor inyectado.");
-    provider = new ethers.providers.Web3Provider(injected, "any");
-    await provider.send("eth_requestAccounts", []);
-    signer  = provider.getSigner();
-    account = await signer.getAddress();
-    $("walletShort").textContent = shortAddr(account);
-
-    // Forzar BSC
-    let net = await provider.getNetwork();
-    if (Number(net.chainId) !== 56) {
-      try {
-        await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-      } catch (e) {
-        if (e.code === 4902) {
-          await provider.provider.request({
-            method:"wallet_addEthereumChain",
-            params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-              rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-          });
-        } else { throw e; }
-      }
-      net = await provider.getNetwork();
-    }
-    $("chainName").textContent = chainName(net.chainId);
-
-    provider.provider?.on?.("accountsChanged", (a)=>{ if (a && a[0]) { account=a[0]; $("walletShort").textContent = shortAddr(account); }});
-    provider.provider?.on?.("chainChanged",  (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-    provider.provider?.on?.("disconnect",     ()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); });
-
-    setStatus("Wallet conectada.", "ok");
-    await loadOnchainParams(); onUsdtInput();
-  }catch(e){
-    setStatus("No se pudo conectar la wallet: " + humanizeProviderError(e), "err");
-    console.error("Injected connect error:", e);
-  }
+    const injected=getInjectedProvider();
+    if(!injected) throw new Error("No hay proveedor inyectado.");
+    provider=new ethers.providers.Web3Provider(injected,"any");
+    await provider.send("eth_requestAccounts",[]);
+    signer=provider.getSigner();
+    account=await signer.getAddress();
+    $("walletShort").textContent=shortAddr(account);
+    const net=await provider.getNetwork();
+    $("chainName").textContent=chainName(net.chainId);
+    setStatus("Wallet conectada.","ok");
+  }catch(e){ setStatus("Error: "+(e.message||e),"err"); }
 }
 
-/* ===== Conectar (WalletConnect) ===== */
+/* Conectar WalletConnect */
 async function connectWithWC(){
   try{
-    setStatus("Abriendo WalletConnect…", "warn");
-    const wc = await initWC();
-    await wc.enable(); // abre QR / deep link
-    provider = new ethers.providers.Web3Provider(wc, "any");
-    signer  = provider.getSigner();
-    account = await signer.getAddress();
-    $("walletShort").textContent = shortAddr(account);
-
-    // Forzar BSC
-    let net = await provider.getNetwork();
-    if (Number(net.chainId) !== 56) {
-      await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
-        .catch(()=>{}); // muchas wallets móviles ya cambian automáticamente al conectar
-      net = await provider.getNetwork();
-    }
-    $("chainName").textContent = chainName(net.chainId);
-
-    wc.on("accountsChanged", (a)=>{ if (a && a[0]) { account=a[0]; $("walletShort").textContent = shortAddr(account); }});
-    wc.on("chainChanged",  (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-    wc.on("disconnect",     ()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); });
-
-    setStatus("Wallet conectada por WalletConnect.", "ok");
-    await loadOnchainParams(); onUsdtInput();
-  }catch(e){
-    setStatus("No se pudo conectar por WalletConnect: " + humanizeProviderError(e), "err");
-    console.error("WC connect error:", e);
-  }
+    const wc=await initWC();
+    await wc.enable();
+    provider=new ethers.providers.Web3Provider(wc,"any");
+    signer=provider.getSigner();
+    account=await signer.getAddress();
+    $("walletShort").textContent=shortAddr(account);
+    const net=await provider.getNetwork();
+    $("chainName").textContent=chainName(net.chainId);
+    setStatus("Conectado con WalletConnect.","ok");
+  }catch(e){ setStatus("Error WC: "+(e.message||e),"err"); }
 }
 
-/* ===== Cambiar a BSC (botón) ===== */
-async function switchToBSC(){
-  try{
-    if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
-    await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-    $("chainName").textContent = "BSC";
-    setStatus("Red cambiada a BSC.", "ok");
-  }catch(err){
-    if (err.code === 4902){
-      try{
-        await provider.provider.request({
-          method:"wallet_addEthereumChain",
-          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-            nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-            rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-        });
-        setStatus("BSC agregada. Intenta de nuevo.", "ok");
-      }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
-    }else{
-      setStatus("No se pudo cambiar a BSC: " + humanizeProviderError(err), "err");
-    }
-  }
-}
-
-/* ===== Aprobar / Comprar (igual que ya tenías) ===== */
-async function approveUSDT(){
-  try{
-    if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
-    const amountStr = $("usdtInput").value.trim();
-    if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
-
-    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
-    const minUSDT  = await saleRead.minUSDT();
-    const maxUSDT  = await saleRead.maxUSDT();
-
-    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
-    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
-    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
-
-    const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, signer);
-    const tx = await usdt.approve(ADDR_PRESALE, amt);
-    setStatus("Aprobando USDT…", "warn");
-    await tx.wait();
-    setStatus("USDT aprobado correctamente.", "ok");
-  }catch(err){
-    setStatus("Fallo al aprobar USDT: " + humanizeProviderError(err), "err");
-    console.error(err);
-  }
-}
-
-async function buyBNC(){
-  try{
-    if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
-    const amountStr = $("usdtInput").value.trim();
-    if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
-
-    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
-    const minUSDT  = await saleRead.minUSDT();
-    const maxUSDT  = await saleRead.maxUSDT();
-
-    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
-    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
-    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
-
-    const presale = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, signer);
-    setStatus("Enviando compra… firma en tu wallet.", "warn");
-    const tx = await presale.buyWithUSDT(amt);
-    await tx.wait();
-    setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
-  }catch(err){
-    setStatus("Error en la compra: " + humanizeProviderError(err), "err");
-    console.error(err);
-  }
-}
-
-/* ===== Eventos UI ===== */
-$("btnConnect").addEventListener("click",   connectInjected);
-$("btnConnectWC").addEventListener("click", connectWithWC);
-$("btnSwitch").addEventListener("click",    switchToBSC);
-$("usdtInput").addEventListener("input",    onUsdtInput);
-$("btnApprove").addEventListener("click",   approveUSDT);
-$("btnBuy").addEventListener("click",       buyBNC);
-
-/* Precarga (rate/decimals) */
-loadOnchainParams().then(onUsdtInput);
+/* Botones */
+$("btnConnect").addEventListener("click",connectInjected);
+$("btnConnectWC").addEventListener("click",connectWithWC);
 </script>
 </body>
 </html>
