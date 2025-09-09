@@ -8,9 +8,8 @@
 
   <!-- Ethers.js v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <!-- WalletConnect v2 (provider EIP-1193 + modal standalone) -->
+  <!-- WalletConnect v2 (provider EIP-1193) -->
   <script src="https://unpkg.com/@walletconnect/ethereum-provider@2/dist/index.umd.js"></script>
-  <script src="https://unpkg.com/@web3modal/standalone@2/dist/index.umd.js"></script>
 
   <style>
     :root{
@@ -111,11 +110,11 @@
    CONFIGURACIÓN DEL PROYECTO
    ========================= */
 const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC (BEP-20)
-const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec)
+const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec en BSC-PEG)
 const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
 const CHAIN_ID     = 56;                                               // BSC Mainnet
 
-/* WalletConnect Project ID (ya pusiste el tuyo) */
+/* WalletConnect Project ID */
 const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
 
 /* ===== ABIs mínimos ===== */
@@ -130,12 +129,12 @@ const PRESALE_ABI = [
   "function minUSDT() view returns (uint256)",
   "function maxUSDT() view returns (uint256)",
   "function hardCapUSDT() view returns (uint256)",
-  "function rate() view returns (uint256)"
+  "function rate() view returns (uint256)" // 1 USDT => rate BNC (entero plano, p.ej. 20)
 ];
 
 /* ===== Estado de la app ===== */
 let provider, signer, account = null;
-let web3Modal, wcProvider;
+let wcProvider;
 let USDT_DEC = 18, BNC_DEC = 18;                // se leerán en runtime
 let RATE_SCALED = ethers.BigNumber.from("0");   // tokens por 1 USDT, escalado 1e18
 
@@ -150,29 +149,29 @@ function setStatus(msg, type=""){ statusEl.textContent = "Estado: " + msg; statu
 function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
 function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
 
-/* ===== Inicializa WalletConnect modal ===== */
-async function initModal(){
-  if (web3Modal) return;
+/* ===== Inicializa WalletConnect ===== */
+async function initWC(){
+  if (wcProvider) return;
   wcProvider = await window.WalletConnectEthereumProvider.init({
     projectId: WC_PROJECT_ID,
     chains: [CHAIN_ID],
     optionalChains: [56, 97],
     showQrModal: true,
     methods: ["eth_sendTransaction","personal_sign","eth_signTypedData","eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"],
-    events: ["chainChanged","accountsChanged","disconnect"]
+    events: ["chainChanged","accountsChanged","disconnect"],
+    rpcMap: { 56: "https://bsc-dataseed.binance.org/" }
   });
-  web3Modal = window.WalletConnectModal;
 }
 
 /* ===== Conectar Wallet ===== */
 async function connectWallet(){
   try{
-    await initModal();
+    await initWC();
 
-    if (window.ethereum && window.ethereum.isMetaMask){
+    if (window.ethereum) {
       provider = new ethers.providers.Web3Provider(window.ethereum, "any");
       await provider.send("eth_requestAccounts", []);
-    }else{
+    } else {
       await wcProvider.enable();
       provider = new ethers.providers.Web3Provider(wcProvider, "any");
     }
@@ -180,7 +179,24 @@ async function connectWallet(){
     account = await signer.getAddress();
 
     $("walletShort").textContent = shortAddr(account);
-    const net = await provider.getNetwork();
+
+    // Forzar/validar BSC
+    let net = await provider.getNetwork();
+    if (Number(net.chainId) !== 56) {
+      try {
+        await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
+      } catch (e) {
+        if (e.code === 4902) {
+          await provider.provider.request({
+            method:"wallet_addEthereumChain",
+            params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
+              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+              rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
+          });
+        } else { throw e; }
+      }
+      net = await provider.getNetwork();
+    }
     $("chainName").textContent = chainName(net.chainId);
 
     wcProvider?.on("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
@@ -202,13 +218,14 @@ async function connectWallet(){
 function onAccountChanged(a){ account = a; $("walletShort").textContent = shortAddr(a); }
 function resetConn(){ provider=undefined; signer=undefined; account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); }
 
-/* ===== Cambiar a BSC ===== */
+/* ===== Cambiar a BSC (botón) ===== */
 async function switchToBSC(){
   try{
     if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
     const ethProv = provider.provider;
     await ethProv.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
     setStatus("Red cambiada a BSC.", "ok");
+    $("chainName").textContent = "BSC";
   }catch(err){
     if (err.code === 4902){
       try{
@@ -234,10 +251,17 @@ async function loadOnchainParams(){
 
     USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
     BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
-    const r  = await sale.rate().catch(()=>ethers.constants.Zero);
-    if (r.gt(0)) RATE_SCALED = r;
+
+    // rate() devuelve entero plano (p.ej. 20). Lo escalamos a 1e18 para el cálculo.
+    const r = await sale.rate().catch(()=>ethers.constants.Zero);
+    if (r.gt(0)) {
+      RATE_SCALED = r.mul(ethers.constants.WeiPerEther); // 20 => 20e18
+    } else {
+      RATE_SCALED = ethers.utils.parseUnits("20", 18);   // fallback 20e18
+    }
   }catch(e){
     console.warn("No se pudo leer parámetros on-chain, usando defaults.");
+    RATE_SCALED = ethers.utils.parseUnits("20", 18);
   }
 }
 
@@ -246,18 +270,24 @@ function onUsdtInput(){
   const v = $("usdtInput").value.trim();
   if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
 
-  // rate escalado (1e18). Fallback = 20e18
   const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
 
-  // USDT a unidades con sus decimales
-  let amt;
-  try{ amt = ethers.utils.parseUnits(v, USDT_DEC); }catch{ $("bncOutput").value="0"; return; }
+  // USDT a unidades con sus decimales (sin floats)
+  let usdtWei;
+  try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
+  catch{ $("bncOutput").value="0"; return; }
 
-  // tokens = usdtAmount * rate / 1e18
-  const tokens = amt.mul(rateScaled).div(ethers.constants.WeiPerEther);
+  // Ajuste por diferencia de decimales entre USDT y BNC
+  let tokensWei;
+  if (BNC_DEC >= USDT_DEC) {
+    const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
+    tokensWei = usdtWei.mul(rateScaled).mul(scale).div(ethers.constants.WeiPerEther);
+  } else {
+    const scale = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
+    tokensWei = usdtWei.mul(rateScaled).div(scale).div(ethers.constants.WeiPerEther);
+  }
 
-  // Mostrar con decimales de BNC y formateado
-  const pretty = Number(ethers.utils.formatUnits(tokens, BNC_DEC));
+  const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
   $("bncOutput").value = pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 });
 }
 
@@ -273,7 +303,7 @@ async function approveUSDT(){
     const minUSDT  = await saleRead.minUSDT();
     const maxUSDT  = await saleRead.maxUSDT();
 
-    const amt = ethers.utils.parseUnits(amountStr, USDT_DEC);
+    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
     if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
     if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
 
@@ -300,7 +330,7 @@ async function buyBNC(){
     const minUSDT  = await saleRead.minUSDT();
     const maxUSDT  = await saleRead.maxUSDT();
 
-    const amt = ethers.utils.parseUnits(amountStr, USDT_DEC);
+    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
     if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
     if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
 
