@@ -6,24 +6,21 @@
   <title>Bienestar Coin (BNC) – Preventa Oficial</title>
   <meta name="description" content="Preventa oficial de Bienestar Coin (BNC) en BNB Smart Chain. 1 USDT = 20 BNC." />
 
-  <!-- Ethers.js v5 -->
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js" defer></script>
-
-  <!-- Opcional: mejoras de red para los CDNs -->
+  <!-- Ethers.js v5 (sin defer para asegurar disponibilidad) -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <!-- WalletConnect v2 UMD (intento 1) -->
+  <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"></script>
+  <!-- Preconnect opcional a CDNs -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
   <style>
-    :root{
-      --gold:#d4af37; --gold-2:#f4d35e; --black:#0b0b0b; --card:#151515;
-      --text:#eaeaea; --muted:#bdbdbd; --ok:#6ee7b7; --warn:#f59e0b; --err:#f87171;
-    }
+    :root{ --gold:#d4af37; --gold-2:#f4d35e; --black:#0b0b0b; --card:#151515;
+      --text:#eaeaea; --muted:#bdbdbd; --ok:#6ee7b7; --warn:#f59e0b; --err:#f87171; }
     *{box-sizing:border-box}
-    body{
-      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
       background: radial-gradient(1200px 500px at 50% -10%, rgba(212,175,55,.15), transparent 70%), var(--black);
-      color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center;
-    }
+      color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; }
     header{width:100%; max-width:980px; padding:24px 16px 8px; display:flex; align-items:center; gap:14px;}
     header img.logo{ width:56px; height:56px; border-radius:50%; object-fit:cover;
       box-shadow:0 0 0 2px rgba(212,175,55,.35), 0 10px 24px rgba(0,0,0,.4);}
@@ -60,6 +57,7 @@
     .oktag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#0f1a14; border:1px solid rgba(110,231,183,.35); color:var(--ok); font-size:12px; }
     .notag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#1a1410; border:1px solid rgba(245,158,11,.35); color:var(--warn); font-size:12px; }
     .btn[disabled]{ opacity:.6; cursor:not-allowed; }
+    .debug{ font-size:11px; color:#aaa; margin-top:8px; white-space:pre-wrap;}
   </style>
 </head>
 <body>
@@ -97,6 +95,7 @@
         <button id="btnBuy" class="btn" disabled>2) Comprar BNC</button>
 
         <div id="status" class="status">Estado: –</div>
+        <div id="debug" class="debug"></div>
 
         <div class="card" style="margin:0; padding:12px">
           <div style="font-size:13px; color:var(--muted); line-height:1.5">
@@ -125,274 +124,323 @@
 /* =========================
    CONFIGURACIÓN DEL PROYECTO
    ========================= */
-const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC (BEP-20)
-const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec en BSC-PEG)
-const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
-const CHAIN_ID     = 56;                                               // BSC Mainnet
-const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";              // Tu Project ID
+var ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC (BEP-20)
+var ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec en BSC-PEG)
+var ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
+var CHAIN_ID     = 56;                                               // BSC Mainnet
+var WC_PROJECT_ID= "b4feca4564a2101fb8925873d5186274";              // Tu Project ID
 
 /* ===== ABIs mínimos ===== */
-const ERC20_ABI = [
+var ERC20_ABI = [
   "function decimals() view returns (uint8)",
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)"
 ];
-const PRESALE_ABI = [
+var PRESALE_ABI = [
   "function buyWithUSDT(uint256 usdtAmount) external",
   "function minUSDT() view returns (uint256)",
   "function maxUSDT() view returns (uint256)",
   "function hardCapUSDT() view returns (uint256)",
-  "function rate() view returns (uint256)" // 1 USDT => rate BNC (entero)
+  "function rate() view returns (uint256)"
 ];
 
 /* ===== Estado de la app ===== */
-let provider, signer, account = null;
-let wcProvider;
-let USDT_DEC = 18, BNC_DEC = 18;
-let RATE_SCALED = ethers.utils.parseUnits("20", 18); // fallback 20e18
-let USDT_BAL = ethers.constants.Zero;
-let USDT_ALLOW = ethers.constants.Zero;
+var provider, signer, account = null;
+var wcProvider = null;
+var USDT_DEC = 18, BNC_DEC = 18;
+var RATE_SCALED = ethers.utils.parseUnits("20", 18); // fallback 20e18
+var USDT_BAL = ethers.constants.Zero;
+var USDT_ALLOW = ethers.constants.Zero;
 
 /* ===== UI helpers ===== */
-const $ = (id) => document.getElementById(id);
-const statusEl = $("status");
+function $(id){ return document.getElementById(id); }
 $("addrBNC").textContent     = ADDR_BNC;
 $("addrUSDT").textContent    = ADDR_USDT;
 $("addrPresale").textContent = ADDR_PRESALE;
 
-function setStatus(msg, type=""){ statusEl.textContent = "Estado: " + msg; statusEl.className="status "+(type||""); }
+function setStatus(msg, type){
+  $("status").textContent = "Estado: " + msg;
+  $("status").className = "status " + (type || "");
+}
+function debugLog(msg){
+  var el = $("debug");
+  if (el) el.textContent = (el.textContent||"") + "\n" + msg;
+  try { console.log(msg); } catch(_){}
+}
 function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
-function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
+function chainName(id){ id=Number(id); return id===56?"BSC":(id===97?"BSC Testnet":"Chain "+id); }
 function fmtLocaleFromUnits(bn, dec){
   try{
-    const s = ethers.utils.formatUnits(bn, dec);
-    const n = Number(s);
+    var s = ethers.utils.formatUnits(bn, dec);
+    var n = Number(s);
     return isNaN(n) ? s : n.toLocaleString("es-MX", { maximumFractionDigits: 6 });
-  }catch{ return "—"; }
+  }catch(e){ return "—"; }
 }
 
-/* ========= CARGADOR ROBUSTO DE WALLETCONNECT (UMD) ========= */
-function getWCEthereumProviderInit(){
-  if(window.WalletConnectProvider?.EthereumProvider?.init) return window.WalletConnectProvider.EthereumProvider.init;
-  if(window.WalletConnectProvider?.default?.init)         return window.WalletConnectProvider.default.init;
-  if(window.WalletConnectEthereumProvider?.init)          return window.WalletConnectEthereumProvider.init;
-  if(window.EthereumProvider?.init)                       return window.EthereumProvider.init;
-  return null;
-}
-
-function loadScriptOnce(src){
-  return new Promise((resolve,reject)=>{
-    // si ya existe exactamente ese src, resolvemos
-    const existing=[...document.scripts].find(s=>s.src===src);
-    if(existing){ existing.addEventListener('load',()=>resolve()); existing.addEventListener('error',()=>reject(new Error('load error'))); if(existing.readyState==='complete') resolve(); return; }
-    const s=document.createElement('script');
-    s.src=src; s.async=true; s.defer=true; s.crossOrigin='anonymous';
-    s.onload=()=>resolve();
-    s.onerror=()=>reject(new Error('error: '+src));
-    document.head.appendChild(s);
-  });
-}
-
-async function ensureWalletConnectUMD(){
-  // si ya está disponible, salimos
-  if (getWCEthereumProviderInit()) return true;
-
-  // intentamos jsDelivr (versión fijada)
-  const cdn1 = "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
-  // fallback a unpkg
-  const cdn2 = "https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
-
-  try{
-    await loadScriptOnce(cdn1);
-  }catch(_){}
-  // si tras jsDelivr sigue sin estar, probamos unpkg
-  if(!getWCEthereumProviderInit()){
-    try{ await loadScriptOnce(cdn2); }catch(_){}
-  }
-
-  // resultado final:
-  return !!getWCEthereumProviderInit();
-}
-/* ========================================================= */
+/* ===== Manejadores globales de error ===== */
+window.onerror = function(msg, src, lineno, colno, err){
+  setStatus("Error JS: " + msg, "err");
+  debugLog("onerror: " + msg + " @ " + src + ":" + lineno + ":" + colno);
+};
+window.onunhandledrejection = function(ev){
+  var m = (ev && ev.reason && (ev.reason.message || ev.reason)) || "promesa rechazada";
+  setStatus("Error: " + m, "err");
+  debugLog("unhandledrejection: " + m);
+};
 
 /* ===== Detectar proveedor inyectado ===== */
 function getInjectedProvider(){
-  if(!window.ethereum) return null;
-  if(window.ethereum.providers?.length){
-    return window.ethereum.providers.find(p=>p.isMetaMask)||window.ethereum.providers[0];
+  if (typeof window === "undefined") return null;
+  if (!window.ethereum) return null;
+  // múltiples
+  if (window.ethereum.providers && window.ethereum.providers.length){
+    for (var i=0;i<window.ethereum.providers.length;i++){
+      var p = window.ethereum.providers[i];
+      if (p && p.isMetaMask) return p;
+    }
+    return window.ethereum.providers[0];
   }
   return window.ethereum;
 }
 
-/* ===== WalletConnect init usando el cargador robusto ===== */
-async function initWC(){
-  if(wcProvider) return wcProvider;
+/* ========= WalletConnect: detección de UMD y fallback de script ========= */
+function getWCEthereumProviderInit(){
+  if (window.WalletConnectProvider && window.WalletConnectProvider.EthereumProvider && window.WalletConnectProvider.EthereumProvider.init) {
+    return window.WalletConnectProvider.EthereumProvider.init;
+  }
+  if (window.WalletConnectProvider && window.WalletConnectProvider["default"] && window.WalletConnectProvider["default"].init) {
+    return window.WalletConnectProvider["default"].init;
+  }
+  if (window.WalletConnectEthereumProvider && window.WalletConnectEthereumProvider.init) {
+    return window.WalletConnectEthereumProvider.init;
+  }
+  if (window.EthereumProvider && window.EthereumProvider.init) {
+    return window.EthereumProvider.init;
+  }
+  return null;
+}
 
-  const ok = await ensureWalletConnectUMD();
-  if(!ok) throw new Error("No se encontró WalletConnect EthereumProvider (UMD). Revisa bloqueos del navegador.");
+function loadScriptOnce(src, cbOk, cbErr){
+  // ¿ya está?
+  var scripts = document.getElementsByTagName("script");
+  for (var i=0;i<scripts.length;i++){ if (scripts[i].src === src) { if (cbOk) cbOk(); return; } }
+  var s = document.createElement("script");
+  s.src = src; s.async = true; s.defer = true; s.crossOrigin = "anonymous";
+  s.onload = function(){ if (cbOk) cbOk(); };
+  s.onerror = function(){ if (cbErr) cbErr(new Error("error carga: "+src)); };
+  document.head.appendChild(s);
+}
 
-  const wcInit = getWCEthereumProviderInit(); // ya debe existir
-  wcProvider = await wcInit({
-    projectId: WC_PROJECT_ID,
-    chains: [56],
-    rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
-    showQrModal: true,
-    methods: [
-      "eth_sendTransaction","personal_sign","eth_signTypedData",
-      "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
-    ],
-    events: ["chainChanged","accountsChanged","disconnect"]
+function ensureWalletConnectUMD(callback){
+  // si ya está:
+  if (getWCEthereumProviderInit()) return callback(true);
+
+  var cdn1 = "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
+  var cdn2 = "https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
+
+  loadScriptOnce(cdn1, function(){
+    if (getWCEthereumProviderInit()) return callback(true);
+    loadScriptOnce(cdn2, function(){
+      callback(!!getWCEthereumProviderInit());
+    }, function(){ callback(false); });
+  }, function(){
+    loadScriptOnce(cdn2, function(){
+      callback(!!getWCEthereumProviderInit());
+    }, function(){ callback(false); });
   });
-  return wcProvider;
+}
+
+/* ===== initWC usando loader robusto ===== */
+function initWC(cb){
+  if (wcProvider) return cb(null, wcProvider);
+  ensureWalletConnectUMD(function(ok){
+    if (!ok) return cb(new Error("No se encontró WalletConnect EthereumProvider (UMD)."));
+    var wcInit = getWCEthereumProviderInit();
+    wcInit({
+      projectId: WC_PROJECT_ID,
+      chains: [CHAIN_ID],
+      rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
+      showQrModal: true,
+      methods: [
+        "eth_sendTransaction","personal_sign","eth_signTypedData",
+        "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
+      ],
+      events: ["chainChanged","accountsChanged","disconnect"]
+    }).then(function(wc){
+      wcProvider = wc;
+      cb(null, wcProvider);
+    }).catch(function(err){ cb(err); });
+  });
 }
 
 /* ===== Conectar Universal (inyectado -> fallback WC) ===== */
-async function connectWalletUniversal(){
+function connectWalletUniversal(){
   try{
     setStatus("Conectando…","warn");
-
-    const injected=getInjectedProvider();
-    if(injected){
-      provider=new ethers.providers.Web3Provider(injected,"any");
-      await provider.send("eth_requestAccounts",[]);
-    }else{
-      const wc=await initWC();
-      await wc.enable(); // QR / deeplink
-      provider=new ethers.providers.Web3Provider(wc,"any");
+    var injected = getInjectedProvider();
+    if (injected){
+      provider = new ethers.providers.Web3Provider(injected, "any");
+      provider.send("eth_requestAccounts", []).then(function(){
+        afterConnected();
+      }).catch(function(e){
+        setStatus("No se pudo conectar: " + (e && (e.message||e)), "err");
+        debugLog("eth_requestAccounts error: " + (e && (e.message||e)));
+      });
+    } else {
+      initWC(function(err, wc){
+        if (err){ setStatus("No se pudo inicializar WalletConnect: "+(err.message||err), "err"); debugLog("initWC err: "+(err.message||err)); return; }
+        wc.enable().then(function(){
+          provider = new ethers.providers.Web3Provider(wc, "any");
+          afterConnected();
+        }).catch(function(e){
+          setStatus("No se pudo conectar por WalletConnect: " + (e && (e.message||e)), "err");
+          debugLog("wc.enable error: " + (e && (e.message||e)));
+        });
+      });
     }
+  }catch(e){
+    setStatus("No se pudo conectar: "+(e && (e.message||e)), "err");
+    debugLog("connect try/catch: " + (e && (e.message||e)));
+  }
+}
 
-    signer=provider.getSigner();
-    account=await signer.getAddress();
-    $("walletShort").textContent=shortAddr(account);
+function afterConnected(){
+  signer = provider.getSigner();
+  signer.getAddress().then(function(addr){
+    account = addr;
+    $("walletShort").textContent = shortAddr(account);
 
-    // Forzar/validar BSC
-    let net=await provider.getNetwork();
-    if(Number(net.chainId)!==56){
-      try{
-        await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-      }catch(e){
-        if(e.code===4902){
-          await provider.provider.request({
+    provider.getNetwork().then(function(net){
+      if (Number(net.chainId) !== 56){
+        provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
+        .catch(function(e){
+          if (e && e.code === 4902){
+            return provider.provider.request({
+              method:"wallet_addEthereumChain",
+              params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
+                nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+                rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
+            });
+          } else { throw e; }
+        }).then(function(){ return provider.getNetwork(); })
+        .then(function(net2){ $("chainName").textContent = chainName(net2.chainId); })
+        .catch(function(e){ setStatus("No se pudo cambiar/agregar BSC: " + (e && (e.message||e)), "err"); });
+      } else {
+        $("chainName").textContent = chainName(net.chainId);
+      }
+
+      // Listeners si existen
+      if (provider && provider.provider && provider.provider.on){
+        provider.provider.on("accountsChanged", function(a){
+          if (a && a[0]){ account = a[0]; $("walletShort").textContent = shortAddr(account); refreshBalances(); }
+        });
+        provider.provider.on("chainChanged", function(cid){
+          $("chainName").textContent = chainName(Number(cid));
+          refreshBalances();
+        });
+        provider.provider.on("disconnect", function(){
+          provider = null; signer = null; account = null;
+          $("walletShort").textContent = "–"; $("chainName").textContent = "–";
+          setStatus("Desconectado.");
+          resetMini();
+        });
+      }
+
+      setStatus("Wallet conectada.","ok");
+      // Cargar parámetros y balances
+      loadOnchainParams().then(function(){ onUsdtInput(); refreshBalances(); });
+    });
+  }).catch(function(e){
+    setStatus("Error al obtener address: " + (e && (e.message||e)), "err");
+  });
+}
+
+/* ===== Cambiar a BSC ===== */
+function switchToBSC(){
+  try{
+    if (!provider) { setStatus("Conecta tu wallet primero.", "warn"); return; }
+    provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
+      .then(function(){ $("chainName").textContent="BSC"; setStatus("Red cambiada a BSC.","ok"); return refreshBalances(); })
+      .catch(function(err){
+        if (err && err.code===4902){
+          provider.provider.request({
             method:"wallet_addEthereumChain",
             params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
               nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
               rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-          });
-        }else{ throw e; }
-      }
-      net=await provider.getNetwork();
-    }
-    $("chainName").textContent=chainName(net.chainId);
-
-    // Listeners
-    provider.provider?.on?.("accountsChanged",(a)=>{ if(a&&a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); }});
-    provider.provider?.on?.("chainChanged",async (cid)=>{ $("chainName").textContent=chainName(Number(cid)); await refreshBalances(); });
-    provider.provider?.on?.("disconnect",()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
-
-    setStatus("Wallet conectada.","ok");
-
-    // Cargar parámetros y refrescar cotización + balances
-    await loadOnchainParams();
-    onUsdtInput();
-    await refreshBalances();
-
-  }catch(e){
-    const msg = e?.data?.message || e?.message || String(e);
-    setStatus("No se pudo conectar: "+msg,"err");
-    console.error("connectWalletUniversal error:",e);
-  }
+          }).then(function(){ setStatus("BSC agregada. Intenta de nuevo.","ok"); })
+          .catch(function(){ setStatus("No se pudo agregar BSC.","err"); });
+        } else {
+          setStatus("No se pudo cambiar a BSC: " + (err && (err.message||err)), "err");
+        }
+      });
+  }catch(e){ setStatus("Error: " + (e && (e.message||e)), "err"); }
 }
 
-/* ===== Cambiar a BSC (botón manual) ===== */
-async function switchToBSC(){
-  try{
-    if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
-    await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-    $("chainName").textContent = "BSC";
-    setStatus("Red cambiada a BSC.", "ok");
-    await refreshBalances();
-  }catch(err){
-    if (err.code === 4902){
-      try{
-        await provider.provider.request({
-          method:"wallet_addEthereumChain",
-          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-            nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-            rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-        });
-        setStatus("BSC agregada. Intenta de nuevo.", "ok");
-      }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
-    }else{
-      setStatus("No se pudo cambiar a BSC: " + (err?.message||err), "err");
-    }
-  }
-}
+/* ===== Leer parámetros on-chain ===== */
+function loadOnchainParams(){
+  return new Promise(function(resolve){
+    try{
+      var rpc = provider ? provider : new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
+      var usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
+      var bnc  = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
+      var sale = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
 
-/* ===== Leer parámetros on-chain (decimales y rate) ===== */
-async function loadOnchainParams(){
-  try{
-    const rpc = provider ?? new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
-    const usdt  = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
-    const bnc   = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
-    const sale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
+      usdt.decimals().then(function(n){ USDT_DEC = Number(n); }).catch(function(){ USDT_DEC = 18; });
+      bnc.decimals().then(function(n){ BNC_DEC = Number(n); }).catch(function(){ BNC_DEC = 18; });
+      sale.rate().then(function(r){
+        if (r && r.gt && r.gt(0)) RATE_SCALED = r.mul(ethers.constants.WeiPerEther);
+      }).catch(function(){});
 
-    USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
-    BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
-
-    // rate() plano -> escalar a 1e18
-    const r = await sale.rate().catch(()=>ethers.constants.Zero);
-    RATE_SCALED = r.gt(0) ? r.mul(ethers.constants.WeiPerEther) : ethers.utils.parseUnits("20", 18);
-  }catch(e){
-    console.warn("No se pudo leer parámetros on-chain, usando defaults.", e);
-  }
+      setTimeout(function(){ resolve(); }, 300); // pequeña espera para que lleguen las lecturas
+    }catch(e){ resolve(); }
+  });
 }
 
 /* ===== Cálculo en vivo (USDT -> BNC) ===== */
 function onUsdtInput(){
-  const v = $("usdtInput").value.trim();
+  var v = $("usdtInput").value.trim();
   if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; updateApprovalUI(null); return; }
 
-  const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
+  var rateScaled = (RATE_SCALED && RATE_SCALED.gt && RATE_SCALED.gt(0)) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
 
-  let usdtWei;
+  var usdtWei;
   try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
-  catch{ $("bncOutput").value="0"; updateApprovalUI(null); return; }
+  catch(e){ $("bncOutput").value="0"; updateApprovalUI(null); return; }
 
-  let tokensWei;
+  var tokensWei;
   if (BNC_DEC >= USDT_DEC) {
-    const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
-    tokensWei = usdtWei.mul(rateScaled).mul(scale).div(ethers.constants.WeiPerEther);
+    var scale1 = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
+    tokensWei = usdtWei.mul(rateScaled).mul(scale1).div(ethers.constants.WeiPerEther);
   } else {
-    const scale = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
-    tokensWei = usdtWei.mul(rateScaled).div(scale).div(ethers.constants.WeiPerEther);
+    var scale2 = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
+    tokensWei = usdtWei.mul(rateScaled).div(scale2).div(ethers.constants.WeiPerEther);
   }
 
-  const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
+  var pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
   $("bncOutput").value = isFinite(pretty) ? pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 }) : "0";
 
   updateApprovalUI(usdtWei);
 }
 
 /* ===== Refrescar Balance y Allowance ===== */
-async function refreshBalances(){
-  try{
-    if (!provider || !account) { resetMini(); return; }
-    const rpc = provider;
-    const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
-    USDT_BAL   = await usdt.balanceOf(account);
-    USDT_ALLOW = await usdt.allowance(account, ADDR_PRESALE);
+function refreshBalances(){
+  return new Promise(function(resolve){
+    try{
+      if (!provider || !account) { resetMini(); resolve(); return; }
+      var usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, provider);
+      usdt.balanceOf(account).then(function(bn){ USDT_BAL = bn; $("miniBalance").textContent = fmtLocaleFromUnits(USDT_BAL, USDT_DEC) + " USDT"; });
+      usdt.allowance(account, ADDR_PRESALE).then(function(bn){ USDT_ALLOW = bn; $("miniAllowance").textContent = fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT"; });
 
-    $("miniBalance").textContent  = fmtLocaleFromUnits(USDT_BAL, USDT_DEC) + " USDT";
-    $("miniAllowance").textContent= fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT";
-
-    const v = $("usdtInput").value.trim();
-    const req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
-    updateApprovalUI(req);
-  }catch(e){
-    console.warn("No se pudo leer balance/allowance", e);
-    resetMini();
-  }
+      setTimeout(function(){
+        var v = $("usdtInput").value.trim();
+        var req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
+        updateApprovalUI(req);
+        resolve();
+      }, 300);
+    }catch(e){ resetMini(); resolve(); }
+  });
 }
 
 function resetMini(){
@@ -406,7 +454,7 @@ function resetMini(){
 /* ===== Actualizar UI de aprobación ===== */
 function updateApprovalUI(requiredWei){
   try{
-    if (!requiredWei || requiredWei.lte(0)) {
+    if (!requiredWei || (requiredWei.lte && requiredWei.lte(0))) {
       $("miniRequired").textContent = "—";
       $("miniApproveState").innerHTML = '<span class="notag">Falta aprobar</span>';
       $("btnBuy").disabled = true;
@@ -414,8 +462,8 @@ function updateApprovalUI(requiredWei){
     }
     $("miniRequired").textContent = fmtLocaleFromUnits(requiredWei, USDT_DEC) + " USDT";
 
-    const enoughBalance  = USDT_BAL.gte(requiredWei);
-    const enoughAllowance= USDT_ALLOW.gte(requiredWei);
+    var enoughBalance  = USDT_BAL.gte ? USDT_BAL.gte(requiredWei) : false;
+    var enoughAllowance= USDT_ALLOW.gte ? USDT_ALLOW.gte(requiredWei) : false;
 
     if (enoughAllowance) {
       $("miniApproveState").innerHTML = '<span class="oktag">Aprobación lista ✓</span>';
@@ -424,85 +472,87 @@ function updateApprovalUI(requiredWei){
       $("miniApproveState").innerHTML = '<span class="notag">Falta aprobar</span>';
       $("btnBuy").disabled = true;
     }
-  }catch{
+  }catch(e){
     $("miniApproveState").innerHTML = '<span class="notag">Falta aprobar</span>';
     $("btnBuy").disabled = true;
   }
 }
 
 /* ===== Aprobar USDT ===== */
-async function approveUSDT(){
+function approveUSDT(){
   try{
-    if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
+    if (!provider || !signer) { setStatus("Conecta tu wallet primero.", "warn"); return; }
 
-    const amountStr = $("usdtInput").value.trim();
-    if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
+    var amountStr = $("usdtInput").value.trim();
+    if (!amountStr || Number(amountStr) <= 0) { setStatus("Ingresa un monto válido.", "warn"); return; }
 
-    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
-    const minUSDT  = await saleRead.minUSDT();
-    const maxUSDT  = await saleRead.maxUSDT();
+    var saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
+    var usdt     = new ethers.Contract(ADDR_USDT,   ERC20_ABI,   signer);
 
-    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
-    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
-    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
+    Promise.all([saleRead.minUSDT(), saleRead.maxUSDT()]).then(function(arr){
+      var minUSDT = arr[0], maxUSDT = arr[1];
+      var amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
+      if (amt.lt(minUSDT)) { setStatus("Monto menor al mínimo permitido.", "warn"); return; }
+      if (amt.gt(maxUSDT)) { setStatus("Monto mayor al máximo permitido.", "warn"); return; }
 
-    const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, signer);
-    setStatus("Aprobando USDT… firma en tu wallet.", "warn");
-    const tx = await usdt.approve(ADDR_PRESALE, amt);
-    $("btnApprove").disabled = true;
-    await tx.wait();
-    setStatus("USDT aprobado correctamente.", "ok");
-
-    // Actualiza allowance y UI
-    USDT_ALLOW = await usdt.allowance(account, ADDR_PRESALE);
-    $("miniAllowance").textContent= fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT";
-    updateApprovalUI(amt);
-  }catch(err){
-    const m = err?.data?.message || err?.message || "Fallo al aprobar USDT.";
-    setStatus(m, "err");
-    console.error(err);
-  }finally{
-    $("btnApprove").disabled = false;
+      setStatus("Aprobando USDT… firma en tu wallet.", "warn");
+      $("btnApprove").disabled = true;
+      usdt.approve(ADDR_PRESALE, amt).then(function(tx){
+        return tx.wait();
+      }).then(function(){
+        setStatus("USDT aprobado correctamente.", "ok");
+        return usdt.allowance(account, ADDR_PRESALE);
+      }).then(function(alw){
+        USDT_ALLOW = alw;
+        $("miniAllowance").textContent = fmtLocaleFromUnits(USDT_ALLOW, USDT_DEC) + " USDT";
+        updateApprovalUI(ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC));
+      }).catch(function(err){
+        setStatus((err && (err.data && err.data.message || err.message)) || "Fallo al aprobar USDT.", "err");
+      }).finally(function(){ $("btnApprove").disabled = false; });
+    }).catch(function(err){
+      setStatus("No se pudo leer límites de preventa.", "err");
+    });
+  }catch(e){
+    setStatus("Fallo al aprobar USDT: " + (e && (e.message||e)), "err");
   }
 }
 
 /* ===== Comprar BNC ===== */
-async function buyBNC(){
+function buyBNC(){
   try{
-    if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
+    if (!provider || !signer) { setStatus("Conecta tu wallet primero.", "warn"); return; }
 
-    const amountStr = $("usdtInput").value.trim();
-    if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
+    var amountStr = $("usdtInput").value.trim();
+    if (!amountStr || Number(amountStr) <= 0) { setStatus("Ingresa un monto válido.", "warn"); return; }
 
-    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
-    const minUSDT  = await saleRead.minUSDT();
-    const maxUSDT  = await saleRead.maxUSDT();
+    var saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
+    var presale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, signer);
 
-    const amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
-    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
-    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
+    Promise.all([saleRead.minUSDT(), saleRead.maxUSDT()]).then(function(arr){
+      var minUSDT = arr[0], maxUSDT = arr[1];
+      var amt = ethers.utils.parseUnits(amountStr.replace(',', '.'), USDT_DEC);
+      if (amt.lt(minUSDT)) { setStatus("Monto menor al mínimo permitido.", "warn"); return; }
+      if (amt.gt(maxUSDT)) { setStatus("Monto mayor al máximo permitido.", "warn"); return; }
+      if (USDT_ALLOW.lt && USDT_ALLOW.lt(amt)) { setStatus("Falta aprobar suficiente USDT para este monto.", "warn"); return; }
 
-    if (USDT_ALLOW.lt(amt)) {
-      setStatus("Falta aprobar suficiente USDT para este monto.", "warn");
-      return;
-    }
-
-    const presale = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, signer);
-    setStatus("Enviando compra… firma en tu wallet.", "warn");
-    $("btnBuy").disabled = true;
-    const tx = await presale.buyWithUSDT(amt);
-    await tx.wait();
-    setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
-
-    await refreshBalances();
-  }catch(err){
-    const m = err?.data?.message || err?.message || "La compra no se pudo completar.";
-    setStatus(m, "err");
-    console.error(err);
-  }finally{
-    const v = $("usdtInput").value.trim();
-    const req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
-    updateApprovalUI(req);
+      setStatus("Enviando compra… firma en tu wallet.", "warn");
+      $("btnBuy").disabled = true;
+      presale.buyWithUSDT(amt).then(function(tx){ return tx.wait(); })
+      .then(function(){
+        setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
+        return refreshBalances();
+      }).catch(function(err){
+        setStatus((err && (err.data && err.data.message || err.message)) || "La compra no se pudo completar.", "err");
+      }).finally(function(){
+        var v = $("usdtInput").value.trim();
+        var req = v && Number(v)>0 ? ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC) : null;
+        updateApprovalUI(req);
+      });
+    }).catch(function(err){
+      setStatus("No se pudo leer límites de preventa.", "err");
+    });
+  }catch(e){
+    setStatus("Error en la compra: " + (e && (e.message||e)), "err");
   }
 }
 
