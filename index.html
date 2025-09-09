@@ -358,3 +358,159 @@ loadOnchainParams().then(onUsdtInput);
 </script>
 </body>
 </html>
+
+<script>
+// ====== Utils ======
+function setStatus(msg, type=""){ 
+  const el = document.getElementById("status");
+  el.textContent = "Estado: " + msg; 
+  el.className = "status " + (type||""); 
+}
+function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
+function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
+
+// ====== Detectar proveedor inyectado de forma fiable ======
+function getInjectedProvider() {
+  if (!window.ethereum) return null;
+  // Algunos navegadores/monederos inyectan múltiples proveedores
+  if (window.ethereum.providers?.length) {
+    const mm = window.ethereum.providers.find(p => p.isMetaMask);
+    return mm || window.ethereum.providers[0];
+  }
+  return window.ethereum;
+}
+
+// ====== WalletConnect v2 (solo si no hay inyectado) ======
+let wcProvider;
+async function initWC(){
+  if (wcProvider) return wcProvider;
+  wcProvider = await window.WalletConnectEthereumProvider.init({
+    projectId: "b4feca4564a2101fb8925873d5186274",
+    chains: [56],
+    optionalChains: [56,97],
+    showQrModal: true,
+    rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
+    methods: [
+      "eth_sendTransaction","personal_sign","eth_signTypedData",
+      "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
+    ],
+    events: ["chainChanged","accountsChanged","disconnect"]
+  });
+  return wcProvider;
+}
+
+// ====== Estado global (reutiliza tus mismas variables) ======
+let provider, signer, account;
+
+// ====== Conectar wallet ======
+async function connectWallet(){
+  try{
+    setStatus("Conectando…", "warn");
+
+    // 1) Preferimos proveedor inyectado (MetaMask, Brave, Coinbase, etc.)
+    const injected = getInjectedProvider();
+    if (injected) {
+      provider = new ethers.providers.Web3Provider(injected, "any");
+      // solicitud de cuentas (EIP-1102)
+      await provider.send("eth_requestAccounts", []);
+    } else {
+      // 2) Fallback a WalletConnect (QR)
+      const wc = await initWC();
+      await wc.enable(); // abre el modal QR
+      provider = new ethers.providers.Web3Provider(wc, "any");
+    }
+
+    signer = provider.getSigner();
+    account = await signer.getAddress();
+    document.getElementById("walletShort").textContent = shortAddr(account);
+
+    // 3) Forzar / validar red BSC (56)
+    let net = await provider.getNetwork();
+    if (Number(net.chainId) !== 56) {
+      try {
+        await provider.provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x38" }]
+        });
+      } catch (e) {
+        if (e.code === 4902) {
+          await provider.provider.request({
+            method:"wallet_addEthereumChain",
+            params:[{
+              chainId:"0x38", chainName:"BNB Smart Chain",
+              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+              rpcUrls:["https://bsc-dataseed.binance.org/"],
+              blockExplorerUrls:["https://bscscan.com/"]
+            }]
+          });
+        } else {
+          throw e;
+        }
+      }
+      net = await provider.getNetwork();
+    }
+    document.getElementById("chainName").textContent = chainName(net.chainId);
+
+    // 4) Listeners
+    provider.provider?.on?.("accountsChanged", (a)=> {
+      if (a && a[0]) {
+        account = a[0];
+        document.getElementById("walletShort").textContent = shortAddr(account);
+      }
+    });
+    provider.provider?.on?.("chainChanged", (cid)=> {
+      document.getElementById("chainName").textContent = chainName(Number(cid));
+    });
+    provider.provider?.on?.("disconnect", ()=> {
+      provider = undefined; signer = undefined; account = null;
+      document.getElementById("walletShort").textContent = "–";
+      document.getElementById("chainName").textContent = "–";
+      setStatus("Desconectado.");
+    });
+
+    setStatus("Wallet conectada.", "ok");
+
+    // Si en tu código cargas parámetros on-chain aquí:
+    if (typeof loadOnchainParams === "function") {
+      await loadOnchainParams();
+      if (typeof onUsdtInput === "function") onUsdtInput();
+    }
+  }catch(e){
+    console.error("Connect error:", e);
+    // Mostrar al usuario el mensaje real del proveedor
+    const msg = e?.data?.message || e?.message || String(e);
+    setStatus("No se pudo conectar la wallet: " + msg, "err");
+  }
+}
+
+// ====== Botón "Cambiar a BSC" (por si el usuario lo pulsa manualmente) ======
+async function switchToBSC(){
+  try{
+    if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
+    await provider.provider.request({
+      method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }]
+    });
+    document.getElementById("chainName").textContent = "BSC";
+    setStatus("Red cambiada a BSC.", "ok");
+  }catch(err){
+    if (err.code === 4902){
+      try{
+        await provider.provider.request({
+          method:"wallet_addEthereumChain",
+          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
+            nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+            rpcUrls:["https://bsc-dataseed.binance.org/"],
+            blockExplorerUrls:["https://bscscan.com/"] }]
+        });
+        setStatus("BSC agregada. Intenta de nuevo.", "ok");
+      }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
+    }else{
+      setStatus("No se pudo cambiar a BSC: " + (err?.message||err), "err");
+    }
+  }
+}
+
+// ====== Enlazar botones (asegúrate de tener los mismos IDs) ======
+document.getElementById("btnConnect").addEventListener("click", connectWallet);
+document.getElementById("btnSwitch").addEventListener("click", switchToBSC);
+</script>
