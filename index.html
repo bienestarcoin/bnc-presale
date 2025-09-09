@@ -12,16 +12,21 @@
   <!-- Intento inicial de WalletConnect (si carga, perfecto) -->
   <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"></script>
 
+  <!-- Preconnect opcional a CDNs -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
   <style>
-    :root{ --gold:#d4af37; --gold-2:#f4d35e; --black:#0b0b0b; --card:#151515;
-      --text:#eaeaea; --muted:#bdbdbd; --ok:#6ee7b7; --warn:#f59e0b; --err:#f87171; }
+    :root{
+      --gold:#d4af37; --gold-2:#f4d35e; --black:#0b0b0b; --card:#151515;
+      --text:#eaeaea; --muted:#bdbdbd; --ok:#6ee7b7; --warn:#f59e0b; --err:#f87171;
+    }
     *{box-sizing:border-box}
-    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
       background: radial-gradient(1200px 500px at 50% -10%, rgba(212,175,55,.15), transparent 70%), var(--black);
-      color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; }
+      color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    }
     header{width:100%; max-width:980px; padding:24px 16px 8px; display:flex; align-items:center; gap:14px;}
     header img.logo{ width:56px; height:56px; border-radius:50%; object-fit:cover;
       box-shadow:0 0 0 2px rgba(212,175,55,.35), 0 10px 24px rgba(0,0,0,.4);}
@@ -35,7 +40,7 @@
     }
     .grid{ display:grid; gap:16px; grid-template-columns: 1fr 1fr; }
     @media (max-width:820px){ .grid{ grid-template-columns:1fr; } }
-    .row{display:flex; gap:10px; align-items:center; justify-content:space-between}
+    .row{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap}
     .row label{font-size:13px; color:var(--muted)}
     input[type="number"], input[type="text"]{
       width:100%; background:#0f0f0f; color:var(--text); border:1px solid rgba(212,175,55,.25);
@@ -43,15 +48,18 @@
     }
     input[readonly]{opacity:.85}
     .btn{
-      width:100%; padding:12px 16px; font-weight:600; font-size:15px; border:none; border-radius:10px; cursor:pointer;
+      padding:12px 16px; font-weight:600; font-size:15px; border:none; border-radius:10px; cursor:pointer;
       background: linear-gradient(90deg, var(--gold), var(--gold-2)); color:#151515; box-shadow:0 8px 24px rgba(212,175,55,.25);
       transition: transform .05s ease, filter .15s ease;
     }
     .btn:hover{ filter:brightness(1.03) } .btn:active{ transform:translateY(1px) }
     .btn.alt{ background:#1d1d1d; color:var(--text); border:1px solid rgba(212,175,55,.25); box-shadow:none; }
+    .btn.block{ width:100% }
     .pill{ display:inline-flex; align-items:center; gap:8px; font-size:13px; padding:8px 12px; border-radius:999px;
       border:1px solid rgba(212,175,55,.25); background:#101010; color:var(--muted); }
     .status{margin-top:12px; font-size:14px} .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.err{color:var(--err)}
+    footer{ width:100%; max-width:980px; padding:8px 16px 24px; color:var(--muted); font-size:13px }
+    code.addr{color:#ffd166}
     .mini{ font-size:13px; color:var(--muted); display:grid; grid-template-columns:auto 1fr; gap:6px 12px; }
     .oktag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#0f1a14; border:1px solid rgba(110,231,183,.35); color:var(--ok); font-size:12px; }
     .notag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#1a1410; border:1px solid rgba(245,158,11,.35); color:var(--warn); font-size:12px; }
@@ -75,7 +83,11 @@
     <div class="grid">
       <div style="display:flex; flex-direction:column; gap:12px">
         <div class="row">
-          <button id="btnConnect" class="btn">Conectar Wallet</button>
+          <button id="btnConnect" class="btn">Conectar Wallet (Auto)</button>
+          <button id="btnConnectInjected" class="btn alt" title="Usa window.ethereum directamente">Conectar (Inyectado)</button>
+        </div>
+        <div class="row">
+          <button id="btnConnectWC" class="btn alt" title="Forzar WalletConnect">Conectar (WalletConnect)</button>
           <button id="btnSwitch"  class="btn alt">Cambiar a BSC</button>
         </div>
 
@@ -92,11 +104,11 @@
       </div>
 
       <div style="display:flex; flex-direction:column; gap:12px">
-        <button id="btnApprove" class="btn">1) Aprobar USDT</button>
-        <button id="btnBuy" class="btn" disabled>2) Comprar BNC</button>
+        <button id="btnApprove" class="btn block">1) Aprobar USDT</button>
+        <button id="btnBuy" class="btn block" disabled>2) Comprar BNC</button>
 
         <div id="status" class="status">Estado: –</div>
-        <div id="debug" class="debug"></div>
+        <pre id="diag" class="debug"></pre>
 
         <div class="card" style="margin:0; padding:12px">
           <div style="font-size:13px; color:var(--muted); line-height:1.5">
@@ -115,7 +127,7 @@
           </div>
         </div>
 
-        <!-- Fallback visible si WC UMD no carga -->
+        <!-- Fallback visible si WalletConnect está bloqueado -->
         <div id="fallbackRow" class="fallback">
           <button class="btn alt" id="btnOpenMetaMask">Abrir en MetaMask App</button>
           <button class="btn alt" id="btnOpenTrust">Abrir en Trust Wallet</button>
@@ -129,13 +141,16 @@
   <footer>© Bienestar Coin · Esta dApp es de preventa. Revisa siempre la dirección de contrato.</footer>
 
 <script>
-/* ========= CONFIG ========= */
+/* =========================
+   CONFIGURACIÓN DEL PROYECTO
+   ========================= */
 var ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";
 var ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";
 var ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";
 var CHAIN_ID     = 56;
 var WC_PROJECT_ID= "b4feca4564a2101fb8925873d5186274";
 
+/* ===== ABIs mínimos ===== */
 var ERC20_ABI = [
   "function decimals() view returns (uint8)",
   "function balanceOf(address) view returns (uint256)",
@@ -150,41 +165,52 @@ var PRESALE_ABI = [
   "function rate() view returns (uint256)"
 ];
 
-/* ========= Estado ========= */
+/* ===== Estado de la app ===== */
 var provider, signer, account = null;
 var wcProvider = null;
 var USDT_DEC = 18, BNC_DEC = 18;
-var RATE_SCALED = ethers.utils.parseUnits("20", 18);
+var RATE_SCALED = ethers.utils.parseUnits("20", 18); // fallback
 var USDT_BAL = ethers.constants.Zero;
 var USDT_ALLOW = ethers.constants.Zero;
 
-/* ========= Helpers UI ========= */
+/* ===== UI helpers ===== */
 function $(id){ return document.getElementById(id); }
 $("addrBNC").textContent     = ADDR_BNC;
 $("addrUSDT").textContent    = ADDR_USDT;
 $("addrPresale").textContent = ADDR_PRESALE;
 
 function setStatus(msg, type){ $("status").textContent="Estado: "+msg; $("status").className="status "+(type||""); }
-function debugLog(m){ var el=$("debug"); if(el){ el.textContent+=(el.textContent?"\n":"")+m; } try{console.log(m);}catch(_){} }
 function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
 function chainName(id){ id=Number(id); return id===56?"BSC":(id===97?"BSC Testnet":"Chain "+id); }
 function fmtLocaleFromUnits(bn, dec){ try{ var s=ethers.utils.formatUnits(bn, dec); var n=Number(s); return isNaN(n)?s:n.toLocaleString("es-MX",{maximumFractionDigits:6}); }catch(_){ return "—"; } }
-
-/* ========= Deep links (fallback sin WC) ========= */
-function currentCleanUrl(){
-  // Usa el dominio público donde sirves la dApp (IMPORTANTE si usas un subdominio)
-  // Por defecto usamos la URL actual:
-  return location.origin + location.pathname + location.search;
+function diagUpdate(extra){
+  try{
+    var eth = (typeof window!=="undefined") ? window.ethereum : null;
+    var lines = [];
+    lines.push("hasEthereum: " + (!!eth));
+    if (eth){
+      lines.push("isMetaMask: " + (!!eth.isMetaMask));
+      lines.push("isTrust: " + (!!eth.isTrust));
+      lines.push("isCoinbaseWallet: " + (!!eth.isCoinbaseWallet));
+      lines.push("selectedAddress: " + (eth.selectedAddress || "—"));
+    }
+    var el = $("diag");
+    if (el){
+      el.textContent = lines.join("\n") + (extra ? ("\n" + extra) : "");
+    }
+  }catch(_){}
 }
+
+/* ===== Deep links (fallback sin WC) ===== */
+function currentCleanUrl(){ return location.origin + location.pathname + location.search; }
 function openInMetaMask(){ location.href = "https://metamask.app.link/dapp/" + encodeURIComponent(currentCleanUrl()); }
 function openInTrust(){ location.href    = "https://link.trustwallet.com/open_url?coin_id=20000714&url=" + encodeURIComponent(currentCleanUrl()); }
-function openInBinance(){ location.href  = "bnc://app?action=wallet_web3&url=" + encodeURIComponent(currentCleanUrl()); } // algunos dispositivos soportan este esquema
-
+function openInBinance(){ location.href  = "bnc://app?action=wallet_web3&url=" + encodeURIComponent(currentCleanUrl()); }
 $("btnOpenMetaMask").addEventListener("click", openInMetaMask);
 $("btnOpenTrust").addEventListener("click", openInTrust);
 $("btnOpenBinance").addEventListener("click", openInBinance);
 
-/* ========= Detectar proveedor inyectado ========= */
+/* ===== Detectar proveedor inyectado ===== */
 function getInjectedProvider(){
   if (!window.ethereum) return null;
   if (window.ethereum.providers && window.ethereum.providers.length){
@@ -197,7 +223,7 @@ function getInjectedProvider(){
   return window.ethereum;
 }
 
-/* ========= Cargador robusto WalletConnect ========= */
+/* ===== WalletConnect UMD util ===== */
 function getWCEthereumProviderInit(){
   if (window.WalletConnectProvider && window.WalletConnectProvider.EthereumProvider && window.WalletConnectProvider.EthereumProvider.init) return window.WalletConnectProvider.EthereumProvider.init;
   if (window.WalletConnectProvider && window.WalletConnectProvider["default"] && window.WalletConnectProvider["default"].init) return window.WalletConnectProvider["default"].init;
@@ -205,142 +231,162 @@ function getWCEthereumProviderInit(){
   if (window.EthereumProvider && window.EthereumProvider.init) return window.EthereumProvider.init;
   return null;
 }
-function loadScript(src, ok, err){
-  var s=document.createElement("script");
-  s.src=src; s.async=true; s.defer=true; s.crossOrigin="anonymous";
-  s.onload=function(){ ok&&ok(); };
-  s.onerror=function(){ err&&err(new Error("error: "+src)); };
-  document.head.appendChild(s);
-}
-function ensureWCUmd(cb){
-  if (getWCEthereumProviderInit()) return cb(true);
-  var cdn1="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
-  var cdn2="https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js";
-  loadScript(cdn1, function(){
-    if (getWCEthereumProviderInit()) return cb(true);
-    loadScript(cdn2, function(){ cb(!!getWCEthereumProviderInit()); }, function(){ cb(false); });
-  }, function(){
-    loadScript(cdn2, function(){ cb(!!getWCEthereumProviderInit()); }, function(){ cb(false); });
-  });
+function loadScript(src){ return new Promise(function(res,rej){ var s=document.createElement("script"); s.src=src; s.async=true; s.defer=true; s.crossOrigin="anonymous"; s.onload=res; s.onerror=function(){rej(new Error("error: "+src));}; document.head.appendChild(s); }); }
+async function ensureWCUmd(){
+  if (getWCEthereumProviderInit()) return true;
+  try{ await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"); }catch(_){}
+  if (getWCEthereumProviderInit()) return true;
+  try{ await loadScript("https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"); }catch(_){}
+  return !!getWCEthereumProviderInit();
 }
 
-/* ========= initWC con fallback a deep links ========= */
-function initWC(cb){
-  if (wcProvider) return cb(null, wcProvider);
-  ensureWCUmd(function(ok){
-    if (!ok){
-      setStatus("No se pudo cargar WalletConnect. Usa los botones de abajo.", "warn");
-      $("fallbackRow").style.display = "flex";
-      return cb(new Error("WC UMD bloqueado"), null);
+/* ===== Conexión por INYECTADO ===== */
+async function connectInjectedOnly(){
+  try{
+    diagUpdate();
+    if (!window.ethereum) {
+      setStatus("No hay proveedor inyectado disponible.", "warn");
+      return;
+    }
+    setStatus("Conectando (inyectado)…", "warn");
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+    signer   = provider.getSigner();
+    account  = await signer.getAddress();
+    $("walletShort").textContent = shortAddr(account);
+
+    // Asegura BSC
+    var chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+    if (chainIdHex !== "0x38"){
+      try{
+        await window.ethereum.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
+      }catch(e){
+        if (e && e.code === 4902){
+          await window.ethereum.request({
+            method:"wallet_addEthereumChain",
+            params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
+              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+              rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
+          });
+        }else{
+          throw e;
+        }
+      }
+    }
+
+    var net = await provider.getNetwork();
+    $("chainName").textContent = chainName(net.chainId);
+
+    if (provider && provider.provider && provider.provider.on){
+      provider.provider.on("accountsChanged", function(a){ if (a && a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); } });
+      provider.provider.on("chainChanged",  function(cid){ $("chainName").textContent=chainName(Number(cid)); refreshBalances(); });
+      provider.provider.on("disconnect",    function(){ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
+    }
+
+    setStatus("Wallet conectada (inyectado).", "ok");
+    await loadOnchainParams();
+    onUsdtInput();
+    await refreshBalances();
+
+  }catch(e){
+    setStatus("Fallo conexión inyectado: " + (e && (e.message||e)), "err");
+    diagUpdate("Err(inyectado): " + (e && (e.message||e)));
+    try{ console.error(e); }catch(_){}
+  }
+}
+
+/* ===== Conexión por WALLETCONNECT ===== */
+async function connectWCOnly(){
+  try{
+    setStatus("Conectando (WalletConnect)…", "warn");
+    diagUpdate();
+
+    var ok = await ensureWCUmd();
+    if (!ok) {
+      setStatus("WalletConnect bloqueado por el navegador. Usa los botones de apertura en app.", "warn");
+      var fr = $("fallbackRow"); if (fr) fr.style.display="flex";
+      return;
     }
     var wcInit = getWCEthereumProviderInit();
-    wcInit({
+    wcProvider = await wcInit({
       projectId: WC_PROJECT_ID,
-      chains: [CHAIN_ID],
+      chains: [56],
       rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
       showQrModal: true,
-      methods: [
-        "eth_sendTransaction","personal_sign","eth_signTypedData",
-        "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
-      ],
+      methods: ["eth_sendTransaction","personal_sign","eth_signTypedData","eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"],
       events: ["chainChanged","accountsChanged","disconnect"]
-    }).then(function(wc){
-      wcProvider = wc;
-      cb(null, wcProvider);
-    }).catch(function(err){
-      setStatus("WC no inicializó. Usa los botones de abajo.", "warn");
-      $("fallbackRow").style.display = "flex";
-      cb(err, null);
     });
-  });
-}
 
-/* ========= Conectar (inyectado → WC → deep link) ========= */
-function connectWalletUniversal(){
-  setStatus("Conectando…","warn");
-  var injected = getInjectedProvider();
-  if (injected){
-    provider = new ethers.providers.Web3Provider(injected, "any");
-    provider.send("eth_requestAccounts", []).then(afterConnected).catch(function(e){
-      setStatus("No se pudo conectar: " + (e && (e.message||e)), "err");
-    });
-    return;
-  }
-  initWC(function(err, wc){
-    if (!err && wc){
-      wc.enable().then(function(){
-        provider = new ethers.providers.Web3Provider(wc, "any");
-        afterConnected();
-      }).catch(function(e){
-        setStatus("WalletConnect cancelado. Puedes usar los botones de abajo.", "warn");
-        $("fallbackRow").style.display = "flex";
-      });
-    } else {
-      // ULTIMO RECURSO: mostrar deep links
-      $("fallbackRow").style.display = "flex";
-      setStatus("Abre la dApp en tu wallet con los botones de abajo.", "warn");
-    }
-  });
-}
-
-function afterConnected(){
-  signer = provider.getSigner();
-  signer.getAddress().then(function(addr){
-    account = addr;
+    await wcProvider.enable();
+    provider = new ethers.providers.Web3Provider(wcProvider, "any");
+    signer   = provider.getSigner();
+    account  = await signer.getAddress();
     $("walletShort").textContent = shortAddr(account);
-    return provider.getNetwork();
-  }).then(function(net){
+
+    var net = await provider.getNetwork();
     if (Number(net.chainId)!==56){
-      return provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
-      .catch(function(e){
+      try{
+        await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
+      }catch(e){
         if (e && e.code===4902){
-          return provider.provider.request({
+          await provider.provider.request({
             method:"wallet_addEthereumChain",
             params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
               nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
               rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
           });
         } else { throw e; }
-      }).then(function(){ return provider.getNetwork(); });
+      }
+      net = await provider.getNetwork();
     }
-    return net;
-  }).then(function(net2){
-    $("chainName").textContent = chainName(net2.chainId);
-    setStatus("Wallet conectada.","ok");
+    $("chainName").textContent = chainName(net.chainId);
 
-    // Listeners
     if (provider && provider.provider && provider.provider.on){
       provider.provider.on("accountsChanged", function(a){ if(a && a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); } });
       provider.provider.on("chainChanged",  function(cid){ $("chainName").textContent=chainName(Number(cid)); refreshBalances(); });
       provider.provider.on("disconnect",    function(){ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
     }
 
-    // Cargar parámetros y balances
-    loadOnchainParams().then(function(){ onUsdtInput(); refreshBalances(); });
-  }).catch(function(e){
-    setStatus("Error tras conectar: " + (e && (e.message||e)), "err");
-  });
+    setStatus("Wallet conectada (WC).", "ok");
+    await loadOnchainParams();
+    onUsdtInput();
+    await refreshBalances();
+
+  }catch(e){
+    setStatus("Fallo WalletConnect: " + (e && (e.message||e)), "err");
+    diagUpdate("Err(WC): " + (e && (e.message||e)));
+    try{ console.error(e); }catch(_){}
+  }
 }
 
-/* ========= Cambiar a BSC ========= */
+/* ===== Ruta automática ===== */
+async function connectAuto(){
+  if (window.ethereum) return connectInjectedOnly();
+  var ok = await ensureWCUmd();
+  if (ok) return connectWCOnly();
+  setStatus("No hay inyectado ni WalletConnect. Abre la dApp dentro de tu wallet.", "warn");
+  var fr = $("fallbackRow"); if (fr) fr.style.display="flex";
+}
+
+/* ===== Cambiar a BSC ===== */
 function switchToBSC(){
   if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
   provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
-  .then(function(){ $("chainName").textContent="BSC"; setStatus("Red cambiada a BSC.","ok"); refreshBalances(); })
-  .catch(function(err){
-    if (err && err.code===4902){
-      provider.provider.request({
-        method:"wallet_addEthereumChain",
-        params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-          nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-          rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-      }).then(function(){ setStatus("BSC agregada. Intenta de nuevo.","ok"); })
-      .catch(function(){ setStatus("No se pudo agregar BSC.","err"); });
-    } else setStatus("No se pudo cambiar a BSC: " + (err && (err.message||err)), "err");
-  });
+    .then(function(){ $("chainName").textContent="BSC"; setStatus("Red cambiada a BSC.","ok"); refreshBalances(); })
+    .catch(function(err){
+      if (err && err.code===4902){
+        provider.provider.request({
+          method:"wallet_addEthereumChain",
+          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
+            nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
+            rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
+        }).then(function(){ setStatus("BSC agregada. Intenta de nuevo.","ok"); })
+        .catch(function(){ setStatus("No se pudo agregar BSC.","err"); });
+      } else setStatus("No se pudo cambiar a BSC: " + (err && (err.message||err)), "err");
+    });
 }
 
-/* ========= On-chain params ========= */
+/* ===== On-chain params ===== */
 function loadOnchainParams(){
   return new Promise(function(resolve){
     try{
@@ -358,7 +404,7 @@ function loadOnchainParams(){
   });
 }
 
-/* ========= Cálculo USDT->BNC ========= */
+/* ===== Cálculo USDT->BNC ===== */
 function onUsdtInput(){
   var v = $("usdtInput").value.trim();
   if (!v || Number(v) <= 0){ $("bncOutput").value="0"; updateApprovalUI(null); return; }
@@ -384,7 +430,7 @@ function onUsdtInput(){
   updateApprovalUI(usdtWei);
 }
 
-/* ========= Balances / allowance ========= */
+/* ===== Balances / allowance ===== */
 function refreshBalances(){
   return new Promise(function(resolve){
     if (!provider || !account){ resetMini(); return resolve(); }
@@ -421,7 +467,7 @@ function updateApprovalUI(requiredWei){
   }catch(_){ $("btnBuy").disabled=true; }
 }
 
-/* ========= Aprobar / Comprar ========= */
+/* ===== Aprobar / Comprar ===== */
 function approveUSDT(){
   if (!provider || !signer) return setStatus("Conecta tu wallet primero.","warn");
   var amountStr=$("usdtInput").value.trim();
@@ -480,15 +526,18 @@ function buyBNC(){
   }).catch(function(){ setStatus("No se pudo leer límites de preventa.","err"); });
 }
 
-/* ========= Eventos ========= */
-$("btnConnect").addEventListener("click", connectWalletUniversal);
+/* ===== Eventos ===== */
+$("btnConnect").addEventListener("click", connectAuto);
+$("btnConnectInjected").addEventListener("click", connectInjectedOnly);
+$("btnConnectWC").addEventListener("click", connectWCOnly);
 $("btnSwitch").addEventListener("click",  switchToBSC);
 $("usdtInput").addEventListener("input",  onUsdtInput);
 $("btnApprove").addEventListener("click", approveUSDT);
 $("btnBuy").addEventListener("click",     buyBNC);
 
-/* ========= Precarga ========= */
+/* ===== Precarga ===== */
 loadOnchainParams().then(onUsdtInput);
+diagUpdate();
 </script>
 </body>
 </html>
