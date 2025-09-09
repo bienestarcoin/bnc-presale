@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Bienestar Coin (BNC) – Preventa Oficial</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background:#0b0f19; color:#eaeefb; }
+    header { padding: 20px; text-align:center; background:#12182a; }
+    h1 { margin: 0; font-size: 24px; }
+    .card { max-width: 480px; margin: 20px auto; padding: 20px; background:#1c2333; border-radius: 12px; }
+    .row { margin: 10px 0; display:flex; gap:10px; align-items:center; }
+    .row label { flex: 0 0 140px; }
+    .row input { flex:1; padding:10px; border-radius:6px; border:1px solid #333; }
+    .btn { width:100%; padding:12px; margin-top:10px; border:none; border-radius:8px; cursor:pointer; }
+    .btn-connect { background:#4f7cff; color:white; }
+    .btn-approve { background:#888; color:white; }
+    .btn-buy { background:#2bb673; color:white; }
+    footer { text-align:center; padding:10px; font-size:13px; color:#9fb0d9; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Bienestar Coin (BNC) – Preventa Oficial</h1>
+    <p>1 USDT = 20 BNC · Mín: 5 USDT · Máx: 50,000 USDT</p>
+  </header>
+  <div class="card">
+    <div class="row">
+      <label>Wallet:</label> <span id="addr">–</span>
+    </div>
+    <div class="row">
+      <label>Red:</label> <span id="net">–</span>
+    </div>
+    <button class="btn btn-connect" id="btnConnect">🔌 Conectar Wallet</button>
+    <div class="row">
+      <label>Monto USDT</label>
+      <input id="amountUsdt" type="number" min="0" step="0.01" placeholder="Ej. 5" />
+    </div>
+    <div class="row">
+      <label>Recibirás BNC</label>
+      <input id="previewBnc" type="text" disabled placeholder="0" />
+    </div>
+    <button class="btn btn-approve" id="btnApprove">1) Aprobar USDT</button>
+    <button class="btn btn-buy" id="btnBuy">2) Comprar BNC</button>
+    <div id="status" style="margin-top:12px;">Estado: –</div>
+  </div>
+  <footer>
+    Contrato BNC: 0xDa7A76879F12824C5e96985F794cde4F90869d2E · 
+    USDT: 0x55d398326f99059fF775485246999027B3197955 · 
+    Preventa: 0xCcAc983D6e111f6f21384E40FA1e305C70844fC4
+  </footer>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+  <script>
+    (function(){
+      const BSC_MAINNET = 56;
+      const BNC_ADDRESS = "0xDa7A76879F12824C5e96985F794cde4F90869d2E";
+      const USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
+      const PRESALE_ADDRESS = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";
+      const RATE_BNC_PER_USDT = 20;
+
+      const ERC20_ABI = [
+        "function decimals() view returns (uint8)",
+        "function balanceOf(address) view returns (uint256)",
+        "function allowance(address,address) view returns (uint256)",
+        "function approve(address spender, uint256 amount) returns (bool)"
+      ];
+      const PRESALE_ABI = [
+        "function buyWithUSDT(uint256 usdtAmount) external"
+      ];
+
+      let provider, signer, account;
+
+      const $addr = document.getElementById("addr");
+      const $net = document.getElementById("net");
+      const $btnConnect = document.getElementById("btnConnect");
+      const $btnApprove = document.getElementById("btnApprove");
+      const $btnBuy = document.getElementById("btnBuy");
+      const $amountUsdt = document.getElementById("amountUsdt");
+      const $previewBnc = document.getElementById("previewBnc");
+      const $status = document.getElementById("status");
+
+      function setStatus(msg){ $status.textContent = "Estado: " + msg; }
+      function updatePreview(){
+        const v = parseFloat($amountUsdt.value || "0");
+        $previewBnc.value = v * RATE_BNC_PER_USDT;
+      }
+      $amountUsdt.oninput = updatePreview;
+
+      async function connect(){
+        if (!window.ethereum) { setStatus("Instala MetaMask/Trust."); return; }
+        provider = new ethers.BrowserProvider(window.ethereum);
+        const network = await provider.getNetwork();
+        if (Number(network.chainId) !== BSC_MAINNET) {
+          await window.ethereum.request({method:"wallet_switchEthereumChain", params:[{chainId:"0x38"}]});
+        }
+        const accs = await provider.send("eth_requestAccounts", []);
+        account = accs[0];
+        signer = await provider.getSigner();
+        $addr.textContent = account.slice(0,6)+"…"+account.slice(-4);
+        $net.textContent = "BSC Mainnet";
+        setStatus("Conectado.");
+      }
+
+      async function approveUSDT(){
+        try{
+          const v = $amountUsdt.value;
+          const usdt = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, signer);
+          const d = await usdt.decimals();
+          const amount = ethers.parseUnits(v, d);
+          const tx = await usdt.approve(PRESALE_ADDRESS, amount);
+          await tx.wait();
+          setStatus("Approve confirmado ✅");
+        }catch(e){ setStatus("Error: "+e.message); }
+      }
+
+      async function buy(){
+        try{
+          const v = $amountUsdt.value;
+          const usdt = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, signer);
+          const d = await usdt.decimals();
+          const amount = ethers.parseUnits(v, d);
+          const presale = new ethers.Contract(PRESALE_ADDRESS, PRESALE_ABI, signer);
+          const tx = await presale.buyWithUSDT(amount);
+          await tx.wait();
+          setStatus("Compra exitosa ✅");
+        }catch(e){ setStatus("Error: "+e.message); }
+      }
+
+      $btnConnect.onclick = connect;
+      $btnApprove.onclick = approveUSDT;
+      $btnBuy.onclick = buy;
+    })();
+  </script>
+</body>
+</html>
