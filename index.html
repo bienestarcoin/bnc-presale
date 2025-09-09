@@ -8,93 +8,52 @@
 
   <!-- Ethers.js v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-  <!-- Web3Modal v2 -->
+  <!-- WalletConnect v2 (provider EIP-1193 + modal standalone) -->
   <script src="https://unpkg.com/@walletconnect/ethereum-provider@2/dist/index.umd.js"></script>
   <script src="https://unpkg.com/@web3modal/standalone@2/dist/index.umd.js"></script>
 
   <style>
     :root{
-      --gold:#d4af37;      /* dorado */
-      --gold-2:#f4d35e;    /* dorado claro para efectos */
-      --black:#0b0b0b;     /* negro profundo */
-      --card:#151515;      /* fondo tarjeta */
-      --text:#eaeaea;      /* texto principal */
-      --muted:#bdbdbd;     /* texto secundario */
-      --ok:#6ee7b7;        /* verde suave */
-      --warn:#f59e0b;      /* ámbar */
-      --err:#f87171;       /* error */
+      --gold:#d4af37; --gold-2:#f4d35e; --black:#0b0b0b; --card:#151515;
+      --text:#eaeaea; --muted:#bdbdbd; --ok:#6ee7b7; --warn:#f59e0b; --err:#f87171;
     }
     *{box-sizing:border-box}
     body{
-      margin:0;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
       background: radial-gradient(1200px 500px at 50% -10%, rgba(212,175,55,.15), transparent 70%), var(--black);
-      color: var(--text);
-      min-height:100vh;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
+      color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center;
     }
-    header{
-      width:100%;
-      max-width:980px;
-      padding:24px 16px 8px;
-      display:flex; align-items:center; gap:14px;
-    }
+    header{width:100%; max-width:980px; padding:24px 16px 8px; display:flex; align-items:center; gap:14px;}
     header img.logo{ width:56px; height:56px; border-radius:50%; object-fit:cover;
       box-shadow:0 0 0 2px rgba(212,175,55,.35), 0 10px 24px rgba(0,0,0,.4);}
     h1{font-size:clamp(22px,3.5vw,30px); margin:0}
-    .sub{
-      color:var(--muted); margin-top:4px; font-size:14px
-    }
+    .sub{ color:var(--muted); margin-top:4px; font-size:14px }
     .card{
       width:100%; max-width:980px; margin:18px 16px; padding:18px;
-      background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.00)),
-                  var(--card);
-      border:1px solid rgba(212,175,55,.25);
-      border-radius:14px;
-      box-shadow: 0 6px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.02);
+      background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.00)), var(--card);
+      border:1px solid rgba(212,175,55,.25); border-radius:14px;
+      box-shadow:0 6px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.02);
     }
-    .grid{
-      display:grid; gap:16px;
-      grid-template-columns: 1fr 1fr;
-    }
+    .grid{ display:grid; gap:16px; grid-template-columns: 1fr 1fr; }
     @media (max-width:820px){ .grid{ grid-template-columns:1fr; } }
     .row{display:flex; gap:10px; align-items:center; justify-content:space-between}
     .row label{font-size:13px; color:var(--muted)}
     input[type="number"], input[type="text"]{
-      width:100%; background:#0f0f0f; color:var(--text);
-      border:1px solid rgba(212,175,55,.25);
-      border-radius:10px; padding:12px 14px; font-size:16px;
-      outline:none;
+      width:100%; background:#0f0f0f; color:var(--text); border:1px solid rgba(212,175,55,.25);
+      border-radius:10px; padding:12px 14px; font-size:16px; outline:none;
     }
     input[readonly]{opacity:.85}
     .btn{
-      width:100%; padding:12px 16px; font-weight:600; font-size:15px;
-      border:none; border-radius:10px; cursor:pointer;
-      background: linear-gradient(90deg, var(--gold), var(--gold-2));
-      color:#151515; box-shadow:0 8px 24px rgba(212,175,55,.25);
+      width:100%; padding:12px 16px; font-weight:600; font-size:15px; border:none; border-radius:10px; cursor:pointer;
+      background: linear-gradient(90deg, var(--gold), var(--gold-2)); color:#151515; box-shadow:0 8px 24px rgba(212,175,55,.25);
       transition: transform .05s ease, filter .15s ease;
     }
-    .btn:hover{ filter:brightness(1.03) }
-    .btn:active{ transform:translateY(1px) }
-    .btn.alt{
-      background:#1d1d1d; color: var(--text);
-      border:1px solid rgba(212,175,55,.25);
-      box-shadow:none;
-    }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      font-size:13px; padding:8px 12px; border-radius:999px;
-      border:1px solid rgba(212,175,55,.25);
-      background:#101010; color:var(--muted);
-    }
-    .status{margin-top:12px; font-size:14px}
-    .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.err{color:var(--err)}
-    footer{
-      width:100%; max-width:980px; padding:8px 16px 24px;
-      color:var(--muted); font-size:13px
-    }
+    .btn:hover{ filter:brightness(1.03) } .btn:active{ transform:translateY(1px) }
+    .btn.alt{ background:#1d1d1d; color:var(--text); border:1px solid rgba(212,175,55,.25); box-shadow:none; }
+    .pill{ display:inline-flex; align-items:center; gap:8px; font-size:13px; padding:8px 12px; border-radius:999px;
+      border:1px solid rgba(212,175,55,.25); background:#101010; color:var(--muted); }
+    .status{margin-top:12px; font-size:14px} .status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.err{color:var(--err)}
+    footer{ width:100%; max-width:980px; padding:8px 16px 24px; color:var(--muted); font-size:13px }
     code.addr{color:#ffd166}
   </style>
 </head>
@@ -111,7 +70,6 @@
 
   <section class="card">
     <div class="grid">
-
       <div style="display:flex; flex-direction:column; gap:12px">
         <div class="row">
           <button id="btnConnect" class="btn">Conectar Wallet</button>
@@ -144,30 +102,22 @@
           </div>
         </div>
       </div>
-
     </div>
   </section>
 
-  <footer>
-    © Bienestar Coin · Esta dApp es de preventa. Revisa siempre la dirección de contrato.
-  </footer>
+  <footer>© Bienestar Coin · Esta dApp es de preventa. Revisa siempre la dirección de contrato.</footer>
 
 <script>
 /* =========================
    CONFIGURACIÓN DEL PROYECTO
    ========================= */
-const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC
-const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20
-const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato preventa
-const RATE_BNC_PER_1_USDT = ethers.BigNumber.from("20");               // 1 USDT = 20 BNC
-const MIN_USDT = ethers.utils.parseUnits("5", 18);                      // 5 USDT
-const MAX_USDT = ethers.utils.parseUnits("50000", 18);                  // 50,000 USDT
-const HARD_CAP  = ethers.utils.parseUnits("1000000000", 18);            // 1,000,000,000 USDT (placeholder)
-const CHAIN_ID  = 56;                                                   // BSC Mainnet
-const CHAIN_NAME_TEXT = "BSC";
+const ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";     // Token BNC (BEP-20)
+const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT BEP-20 (18 dec)
+const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
+const CHAIN_ID     = 56;                                               // BSC Mainnet
 
-/* WalletConnect Project ID  👉 PON EL TUYO AQUÍ */
-const WC_PROJECT_ID = "PON_AQUI_TU_PROJECT_ID";
+/* WalletConnect Project ID -> PON EL TUYO */
+const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
 
 /* ===== ABIs mínimos ===== */
 const ERC20_ABI = [
@@ -186,31 +136,28 @@ const PRESALE_ABI = [
 ];
 
 /* ===== Estado de la app ===== */
-let provider;        // ethers.providers.Web3Provider
-let signer;          // ethers.Signer
-let account = null;
-let web3Modal;       // Standalone modal
-let wcProvider;      // WalletConnect EIP-1193 provider
+let provider, signer, account = null;
+let web3Modal, wcProvider;
+let USDT_DEC = 18, BNC_DEC = 18;                // se leerán en runtime
+let RATE_SCALED = ethers.BigNumber.from("0");   // se leerá de la preventa
 
 /* ===== UI helpers ===== */
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
-const addrBNCEl = $("addrBNC");
-const addrUSDTEl = $("addrUSDT");
-const addrPresaleEl = $("addrPresale");
+$("addrBNC").textContent     = ADDR_BNC;
+$("addrUSDT").textContent    = ADDR_USDT;
+$("addrPresale").textContent = ADDR_PRESALE;
 
-addrBNCEl.textContent     = ADDR_BNC;
-addrUSDTEl.textContent    = ADDR_USDT;
-addrPresaleEl.textContent = ADDR_PRESALE;
+function setStatus(msg, type=""){ statusEl.textContent = "Estado: " + msg; statusEl.className="status "+(type||""); }
+function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
+function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
 
-/* ===== Inicializa Web3Modal (WalletConnect universal) ===== */
+/* ===== Inicializa WalletConnect modal ===== */
 async function initModal(){
   if (web3Modal) return;
-
   if (!WC_PROJECT_ID || WC_PROJECT_ID === "b4feca4564a2101fb8925873d5186274"){
     setStatus("Falta configurar WalletConnect Project ID.", "warn");
   }
-
   wcProvider = await window.WalletConnectEthereumProvider.init({
     projectId: WC_PROJECT_ID,
     chains: [CHAIN_ID],
@@ -219,7 +166,6 @@ async function initModal(){
     methods: ["eth_sendTransaction","personal_sign","eth_signTypedData","eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"],
     events: ["chainChanged","accountsChanged","disconnect"]
   });
-
   web3Modal = window.WalletConnectModal;
 }
 
@@ -228,16 +174,13 @@ async function connectWallet(){
   try{
     await initModal();
 
-    // Si hay MetaMask en desktop, usa window.ethereum por defecto
     if (window.ethereum && window.ethereum.isMetaMask){
       provider = new ethers.providers.Web3Provider(window.ethereum, "any");
       await provider.send("eth_requestAccounts", []);
     }else{
-      // WalletConnect universal
       await wcProvider.enable();
       provider = new ethers.providers.Web3Provider(wcProvider, "any");
     }
-
     signer = provider.getSigner();
     account = await signer.getAddress();
 
@@ -245,76 +188,77 @@ async function connectWallet(){
     const net = await provider.getNetwork();
     $("chainName").textContent = chainName(net.chainId);
 
-    // Listeners
-    if (wcProvider){
-      wcProvider.on("accountsChanged", (accs)=>{ if(accs && accs[0]) onAccountChanged(accs[0]); });
-      wcProvider.on("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-      wcProvider.on("disconnect", ()=>{ resetConn(); });
-    }
-    if (window.ethereum){
-      window.ethereum.on?.("accountsChanged", (accs)=>{ if(accs && accs[0]) onAccountChanged(accs[0]); });
-      window.ethereum.on?.("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-      window.ethereum.on?.("disconnect", ()=>{ resetConn(); });
-    }
+    // listeners
+    wcProvider?.on("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
+    wcProvider?.on("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
+    wcProvider?.on("disconnect", resetConn);
+    window.ethereum?.on?.("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
+    window.ethereum?.on?.("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
+    window.ethereum?.on?.("disconnect", resetConn);
 
     setStatus("Wallet conectada.", "ok");
-  }catch(err){
-    console.error(err);
+
+    // Carga parámetros on-chain (decimales y rate)
+    await loadOnchainParams();
+    // Actualiza conversión si ya hay input
+    onUsdtInput();
+  }catch(e){
+    console.error(e);
     setStatus("No se pudo conectar la wallet.", "err");
   }
 }
-
-function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
-function chainName(id){
-  if (Number(id)===56) return "BSC";
-  if (Number(id)===97) return "BSC Testnet";
-  return "Chain "+id;
-}
-function onAccountChanged(a){
-  account = a;
-  $("walletShort").textContent = shortAddr(account);
-}
+function onAccountChanged(a){ account = a; $("walletShort").textContent = shortAddr(a); }
+function resetConn(){ provider=undefined; signer=undefined; account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); }
 
 /* ===== Cambiar a BSC ===== */
 async function switchToBSC(){
   try{
     if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
-    const ethProv = provider.provider; // EIP-1193
-    await ethProv.request({
-      method:"wallet_switchEthereumChain",
-      params:[{ chainId:"0x38" }] // 56 decimal
-    });
+    const ethProv = provider.provider;
+    await ethProv.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
     setStatus("Red cambiada a BSC.", "ok");
   }catch(err){
-    // Si la red no está agregada
-    if (err.code === 4902 || (err.data && err.data.originalError && err.data.originalError.code===4902)){
+    if (err.code === 4902){
       try{
         await provider.provider.request({
           method:"wallet_addEthereumChain",
-          params:[{
-            chainId:"0x38",
-            chainName:"BNB Smart Chain",
+          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
             nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-            rpcUrls:["https://bsc-dataseed.binance.org/"],
-            blockExplorerUrls:["https://bscscan.com/"]
-          }]
+            rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
         });
         setStatus("BSC agregada. Vuelve a intentar el cambio.", "ok");
-      }catch(e){
-        setStatus("No se pudo agregar BSC.", "err");
-      }
-    }else{
-      setStatus("No se pudo cambiar a BSC.", "err");
-    }
+      }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
+    }else setStatus("No se pudo cambiar a BSC.", "err");
   }
+}
+
+/* ===== Leer parámetros (decimales y rate) ===== */
+async function loadOnchainParams(){
+  try{
+    const rpc = provider ?? new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
+    const usdt  = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
+    const bnc   = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
+    const sale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
+
+    USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
+    BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
+    const r  = await sale.rate().catch(()=>ethers.constants.Zero);
+    if (r.gt(0)) RATE_SCALED = r;
+
+  }catch(e){ console.warn("No se pudo leer parámetros on-chain, usando defaults."); }
 }
 
 /* ===== Cálculo en vivo (USDT -> BNC) ===== */
 function onUsdtInput(){
   const v = $("usdtInput").value.trim();
   if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
-  const bnc = Number(v) * Number(RATE_BNC_PER_1_USDT.toString());
-  $("bncOutput").value = bnc.toLocaleString("es-MX", { maximumFractionDigits: 6 });
+  // Si aún no pudimos leer rate(), usa 20e18 como fallback
+  const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
+  // usdt a unidades (18)
+  let amt;
+  try{ amt = ethers.utils.parseUnits(v, USDT_DEC); }catch{ $("bncOutput").value="0"; return; }
+  const tokens = amt.mul(rateScaled).div(ethers.constants.WeiPerEther);
+  $("bncOutput").value = ethers.utils.formatUnits(tokens, BNC_DEC);
 }
 
 /* ===== Aprobar USDT ===== */
@@ -325,14 +269,15 @@ async function approveUSDT(){
     const amountStr = $("usdtInput").value.trim();
     if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
 
-    // Validaciones min/máx
-    const amt = ethers.utils.parseUnits(amountStr, 18);
-    if (amt.lt(MIN_USDT)) return setStatus("Mínimo 5 USDT.", "warn");
-    if (amt.gt(MAX_USDT)) return setStatus("Máximo 50,000 USDT.", "warn");
+    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
+    const minUSDT  = await saleRead.minUSDT();
+    const maxUSDT  = await saleRead.maxUSDT();
+
+    const amt = ethers.utils.parseUnits(amountStr, USDT_DEC);
+    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
+    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
 
     const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, signer);
-
-    // Si quieres aprobar justo el monto ingresado:
     const tx = await usdt.approve(ADDR_PRESALE, amt);
     setStatus("Aprobando USDT… esperando confirmación.", "warn");
     await tx.wait();
@@ -351,37 +296,24 @@ async function buyBNC(){
     const amountStr = $("usdtInput").value.trim();
     if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
 
-    const amt = ethers.utils.parseUnits(amountStr, 18);
-    if (amt.lt(MIN_USDT)) return setStatus("Mínimo 5 USDT.", "warn");
-    if (amt.gt(MAX_USDT)) return setStatus("Máximo 50,000 USDT.", "warn");
+    const saleRead = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, provider);
+    const minUSDT  = await saleRead.minUSDT();
+    const maxUSDT  = await saleRead.maxUSDT();
+
+    const amt = ethers.utils.parseUnits(amountStr, USDT_DEC);
+    if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.", "warn");
+    if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.", "warn");
 
     const presale = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, signer);
-
     setStatus("Enviando compra… firma en tu wallet.", "warn");
     const tx = await presale.buyWithUSDT(amt);
     await tx.wait();
     setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
   }catch(err){
     console.error(err);
-    if (err && err.data && err.data.message) {
-      setStatus("Error: "+err.data.message, "err");
-    } else {
-      setStatus("La compra no se pudo completar.", "err");
-    }
+    const m = err?.data?.message || err?.message || "La compra no se pudo completar.";
+    setStatus(m, "err");
   }
-}
-
-/* ===== Utilidades ===== */
-function setStatus(msg, type=""){
-  statusEl.textContent = "Estado: " + msg;
-  statusEl.className = "status " + (type||"");
-}
-
-function resetConn(){
-  provider = undefined; signer = undefined; account = null;
-  $("walletShort").textContent = "–";
-  $("chainName").textContent = "–";
-  setStatus("Desconectado.");
 }
 
 /* ===== Eventos UI ===== */
@@ -391,8 +323,8 @@ $("usdtInput").addEventListener("input", onUsdtInput);
 $("btnApprove").addEventListener("click", approveUSDT);
 $("btnBuy").addEventListener("click", buyBNC);
 
-// Inicial: muestra cálculo en 0
-onUsdtInput();
+// Inicial: intentar precargar params (rate/decimals) por RPC público y preparar cálculo
+loadOnchainParams().then(onUsdtInput);
 </script>
 </body>
 </html>
