@@ -70,8 +70,9 @@
     <div class="grid">
       <div style="display:flex; flex-direction:column; gap:12px">
         <div class="row">
-          <button id="btnConnect" class="btn">Conectar Wallet</button>
-          <button id="btnSwitch" class="btn alt" title="Cambiar a BNB Smart Chain">Cambiar a BSC</button>
+          <button id="btnConnect"   class="btn">Conectar Wallet</button>
+          <button id="btnConnectWC" class="btn alt" title="Escanear QR con tu wallet">WalletConnect</button>
+          <button id="btnSwitch"    class="btn alt" title="Cambiar a BNB Smart Chain">Cambiar a BSC</button>
         </div>
 
         <div class="row">
@@ -114,7 +115,7 @@ const ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";     // USDT B
 const ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";     // Contrato de preventa
 const CHAIN_ID     = 56;                                               // BSC Mainnet
 
-/* WalletConnect Project ID */
+/* WalletConnect Project ID — CAMBIA ESTO POR EL TUYO */
 const WC_PROJECT_ID = "b4feca4564a2101fb8925873d5186274";
 
 /* ===== ABIs mínimos ===== */
@@ -129,14 +130,14 @@ const PRESALE_ABI = [
   "function minUSDT() view returns (uint256)",
   "function maxUSDT() view returns (uint256)",
   "function hardCapUSDT() view returns (uint256)",
-  "function rate() view returns (uint256)" // 1 USDT => rate BNC (entero plano, p.ej. 20)
+  "function rate() view returns (uint256)" // 1 USDT => rate BNC (entero)
 ];
 
 /* ===== Estado de la app ===== */
 let provider, signer, account = null;
 let wcProvider;
-let USDT_DEC = 18, BNC_DEC = 18;                // se leerán en runtime
-let RATE_SCALED = ethers.BigNumber.from("0");   // tokens por 1 USDT, escalado 1e18
+let USDT_DEC = 18, BNC_DEC = 18;
+let RATE_SCALED = ethers.utils.parseUnits("20", 18);
 
 /* ===== UI helpers ===== */
 const $ = (id) => document.getElementById(id);
@@ -149,38 +150,98 @@ function setStatus(msg, type=""){ statusEl.textContent = "Estado: " + msg; statu
 function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
 function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
 
+/* ===== Detectar proveedor inyectado ===== */
+function getInjectedProvider() {
+  if (!window.ethereum) return null;
+  if (window.ethereum.providers?.length) {
+    const mm = window.ethereum.providers.find(p => p.isMetaMask) || window.ethereum.providers[0];
+    return mm;
+  }
+  return window.ethereum;
+}
+
 /* ===== Inicializa WalletConnect ===== */
 async function initWC(){
-  if (wcProvider) return;
+  if (wcProvider) return wcProvider;
+  if (!WC_PROJECT_ID || WC_PROJECT_ID.length < 10) {
+    throw new Error("WalletConnect sin Project ID. Configura WC_PROJECT_ID.");
+  }
   wcProvider = await window.WalletConnectEthereumProvider.init({
     projectId: WC_PROJECT_ID,
     chains: [CHAIN_ID],
     optionalChains: [56, 97],
     showQrModal: true,
-    methods: ["eth_sendTransaction","personal_sign","eth_signTypedData","eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"],
-    events: ["chainChanged","accountsChanged","disconnect"],
-    rpcMap: { 56: "https://bsc-dataseed.binance.org/" }
+    rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
+    methods: [
+      "eth_sendTransaction","personal_sign","eth_signTypedData",
+      "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
+    ],
+    events: ["chainChanged","accountsChanged","disconnect"]
   });
+  return wcProvider;
 }
 
-/* ===== Conectar Wallet ===== */
-async function connectWallet(){
+/* ===== Leer parámetros on-chain ===== */
+async function loadOnchainParams(){
   try{
-    await initWC();
+    const rpc = provider ?? new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
+    const usdt  = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
+    const bnc   = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
+    const sale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
 
-    if (window.ethereum) {
-      provider = new ethers.providers.Web3Provider(window.ethereum, "any");
-      await provider.send("eth_requestAccounts", []);
-    } else {
-      await wcProvider.enable();
-      provider = new ethers.providers.Web3Provider(wcProvider, "any");
-    }
-    signer = provider.getSigner();
+    USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
+    BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
+
+    const r = await sale.rate().catch(()=>ethers.constants.Zero);
+    RATE_SCALED = r.gt(0) ? r.mul(ethers.constants.WeiPerEther) : ethers.utils.parseUnits("20", 18);
+  }catch(e){ /* deja defaults */ }
+}
+
+/* ===== Mostrar cotización ===== */
+function onUsdtInput(){
+  const v = $("usdtInput").value.trim();
+  if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
+
+  const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
+  let usdtWei;
+  try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
+  catch{ $("bncOutput").value="0"; return; }
+
+  let tokensWei;
+  if (BNC_DEC >= USDT_DEC) {
+    const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
+    tokensWei = usdtWei.mul(rateScaled).mul(scale).div(ethers.constants.WeiPerEther);
+  } else {
+    const scale = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
+    tokensWei = usdtWei.mul(rateScaled).div(scale).div(ethers.constants.WeiPerEther);
+  }
+  const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
+  $("bncOutput").value = pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 });
+}
+
+/* ===== Mapear errores del proveedor a mensajes claros ===== */
+function humanizeProviderError(e){
+  const msg = e?.data?.message || e?.message || String(e);
+  if (/user rejected|denied|rejected request/i.test(msg)) return "Solicitud rechazada por el usuario.";
+  if (/invalid project|project id|403/i.test(msg)) return "WalletConnect: Project ID inválido o no autorizado.";
+  if (/No Ethereum provider|Provider not found|window\.ethereum/i.test(msg)) return "No se detecta wallet inyectada. Usa el botón WalletConnect.";
+  if (/Unsupported chain|chainId/i.test(msg)) return "Red no soportada. Cambia a BSC (56).";
+  return msg;
+}
+
+/* ===== Conectar (inyectado) ===== */
+async function connectInjected(){
+  try{
+    setStatus("Conectando wallet inyectada…", "warn");
+    const injected = getInjectedProvider();
+    if (!injected) throw new Error("No hay proveedor inyectado.");
+    provider = new ethers.providers.Web3Provider(injected, "any");
+    await provider.send("eth_requestAccounts", []);
+    signer  = provider.getSigner();
     account = await signer.getAddress();
-
     $("walletShort").textContent = shortAddr(account);
 
-    // Forzar/validar BSC
+    // Forzar BSC
     let net = await provider.getNetwork();
     if (Number(net.chainId) !== 56) {
       try {
@@ -199,33 +260,57 @@ async function connectWallet(){
     }
     $("chainName").textContent = chainName(net.chainId);
 
-    wcProvider?.on("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
-    wcProvider?.on("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-    wcProvider?.on("disconnect", resetConn);
-    window.ethereum?.on?.("accountsChanged", (a)=>{ if(a && a[0]) onAccountChanged(a[0]); });
-    window.ethereum?.on?.("chainChanged", (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
-    window.ethereum?.on?.("disconnect", resetConn);
+    provider.provider?.on?.("accountsChanged", (a)=>{ if (a && a[0]) { account=a[0]; $("walletShort").textContent = shortAddr(account); }});
+    provider.provider?.on?.("chainChanged",  (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
+    provider.provider?.on?.("disconnect",     ()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); });
 
     setStatus("Wallet conectada.", "ok");
-
-    await loadOnchainParams();
-    onUsdtInput();
+    await loadOnchainParams(); onUsdtInput();
   }catch(e){
-    console.error(e);
-    setStatus("No se pudo conectar la wallet.", "err");
+    setStatus("No se pudo conectar la wallet: " + humanizeProviderError(e), "err");
+    console.error("Injected connect error:", e);
   }
 }
-function onAccountChanged(a){ account = a; $("walletShort").textContent = shortAddr(a); }
-function resetConn(){ provider=undefined; signer=undefined; account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); }
+
+/* ===== Conectar (WalletConnect) ===== */
+async function connectWithWC(){
+  try{
+    setStatus("Abriendo WalletConnect…", "warn");
+    const wc = await initWC();
+    await wc.enable(); // abre QR / deep link
+    provider = new ethers.providers.Web3Provider(wc, "any");
+    signer  = provider.getSigner();
+    account = await signer.getAddress();
+    $("walletShort").textContent = shortAddr(account);
+
+    // Forzar BSC
+    let net = await provider.getNetwork();
+    if (Number(net.chainId) !== 56) {
+      await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
+        .catch(()=>{}); // muchas wallets móviles ya cambian automáticamente al conectar
+      net = await provider.getNetwork();
+    }
+    $("chainName").textContent = chainName(net.chainId);
+
+    wc.on("accountsChanged", (a)=>{ if (a && a[0]) { account=a[0]; $("walletShort").textContent = shortAddr(account); }});
+    wc.on("chainChanged",  (cid)=>{ $("chainName").textContent = chainName(Number(cid)); });
+    wc.on("disconnect",     ()=>{ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); });
+
+    setStatus("Wallet conectada por WalletConnect.", "ok");
+    await loadOnchainParams(); onUsdtInput();
+  }catch(e){
+    setStatus("No se pudo conectar por WalletConnect: " + humanizeProviderError(e), "err");
+    console.error("WC connect error:", e);
+  }
+}
 
 /* ===== Cambiar a BSC (botón) ===== */
 async function switchToBSC(){
   try{
     if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
-    const ethProv = provider.provider;
-    await ethProv.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-    setStatus("Red cambiada a BSC.", "ok");
+    await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
     $("chainName").textContent = "BSC";
+    setStatus("Red cambiada a BSC.", "ok");
   }catch(err){
     if (err.code === 4902){
       try{
@@ -235,67 +320,18 @@ async function switchToBSC(){
             nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
             rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
         });
-        setStatus("BSC agregada. Vuelve a intentar el cambio.", "ok");
+        setStatus("BSC agregada. Intenta de nuevo.", "ok");
       }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
-    }else setStatus("No se pudo cambiar a BSC.", "err");
-  }
-}
-
-/* ===== Leer parámetros (decimales y rate) ===== */
-async function loadOnchainParams(){
-  try{
-    const rpc = provider ?? new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
-    const usdt  = new ethers.Contract(ADDR_USDT, ERC20_ABI, rpc);
-    const bnc   = new ethers.Contract(ADDR_BNC,  ERC20_ABI, rpc);
-    const sale  = new ethers.Contract(ADDR_PRESALE, PRESALE_ABI, rpc);
-
-    USDT_DEC = await usdt.decimals().then(Number).catch(()=>18);
-    BNC_DEC  = await bnc.decimals().then(Number).catch(()=>18);
-
-    // rate() devuelve entero plano (p.ej. 20). Lo escalamos a 1e18 para el cálculo.
-    const r = await sale.rate().catch(()=>ethers.constants.Zero);
-    if (r.gt(0)) {
-      RATE_SCALED = r.mul(ethers.constants.WeiPerEther); // 20 => 20e18
-    } else {
-      RATE_SCALED = ethers.utils.parseUnits("20", 18);   // fallback 20e18
+    }else{
+      setStatus("No se pudo cambiar a BSC: " + humanizeProviderError(err), "err");
     }
-  }catch(e){
-    console.warn("No se pudo leer parámetros on-chain, usando defaults.");
-    RATE_SCALED = ethers.utils.parseUnits("20", 18);
   }
 }
 
-/* ===== Cálculo en vivo (USDT -> BNC) ===== */
-function onUsdtInput(){
-  const v = $("usdtInput").value.trim();
-  if (!v || Number(v) <= 0){ $("bncOutput").value = "0"; return; }
-
-  const rateScaled = RATE_SCALED.gt(0) ? RATE_SCALED : ethers.utils.parseUnits("20", 18);
-
-  // USDT a unidades con sus decimales (sin floats)
-  let usdtWei;
-  try{ usdtWei = ethers.utils.parseUnits(v.replace(',', '.'), USDT_DEC); }
-  catch{ $("bncOutput").value="0"; return; }
-
-  // Ajuste por diferencia de decimales entre USDT y BNC
-  let tokensWei;
-  if (BNC_DEC >= USDT_DEC) {
-    const scale = ethers.BigNumber.from(10).pow(BNC_DEC - USDT_DEC);
-    tokensWei = usdtWei.mul(rateScaled).mul(scale).div(ethers.constants.WeiPerEther);
-  } else {
-    const scale = ethers.BigNumber.from(10).pow(USDT_DEC - BNC_DEC);
-    tokensWei = usdtWei.mul(rateScaled).div(scale).div(ethers.constants.WeiPerEther);
-  }
-
-  const pretty = Number(ethers.utils.formatUnits(tokensWei, BNC_DEC));
-  $("bncOutput").value = pretty.toLocaleString("es-MX", { maximumFractionDigits: 6 });
-}
-
-/* ===== Aprobar USDT ===== */
+/* ===== Aprobar / Comprar (igual que ya tenías) ===== */
 async function approveUSDT(){
   try{
     if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
-
     const amountStr = $("usdtInput").value.trim();
     if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
 
@@ -309,20 +345,18 @@ async function approveUSDT(){
 
     const usdt = new ethers.Contract(ADDR_USDT, ERC20_ABI, signer);
     const tx = await usdt.approve(ADDR_PRESALE, amt);
-    setStatus("Aprobando USDT… esperando confirmación.", "warn");
+    setStatus("Aprobando USDT…", "warn");
     await tx.wait();
     setStatus("USDT aprobado correctamente.", "ok");
   }catch(err){
+    setStatus("Fallo al aprobar USDT: " + humanizeProviderError(err), "err");
     console.error(err);
-    setStatus("Fallo al aprobar USDT.", "err");
   }
 }
 
-/* ===== Comprar BNC ===== */
 async function buyBNC(){
   try{
     if (!provider || !signer) return setStatus("Conecta tu wallet primero.", "warn");
-
     const amountStr = $("usdtInput").value.trim();
     if (!amountStr || Number(amountStr) <= 0) return setStatus("Ingresa un monto válido.", "warn");
 
@@ -340,177 +374,21 @@ async function buyBNC(){
     await tx.wait();
     setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.", "ok");
   }catch(err){
+    setStatus("Error en la compra: " + humanizeProviderError(err), "err");
     console.error(err);
-    const m = err?.data?.message || err?.message || "La compra no se pudo completar.";
-    setStatus(m, "err");
   }
 }
 
 /* ===== Eventos UI ===== */
-$("btnConnect").addEventListener("click", connectWallet);
-$("btnSwitch").addEventListener("click", switchToBSC);
-$("usdtInput").addEventListener("input", onUsdtInput);
-$("btnApprove").addEventListener("click", approveUSDT);
-$("btnBuy").addEventListener("click", buyBNC);
+$("btnConnect").addEventListener("click",   connectInjected);
+$("btnConnectWC").addEventListener("click", connectWithWC);
+$("btnSwitch").addEventListener("click",    switchToBSC);
+$("usdtInput").addEventListener("input",    onUsdtInput);
+$("btnApprove").addEventListener("click",   approveUSDT);
+$("btnBuy").addEventListener("click",       buyBNC);
 
-// Precarga (rate/decimals) y prepara cálculo inicial
+/* Precarga (rate/decimals) */
 loadOnchainParams().then(onUsdtInput);
 </script>
 </body>
 </html>
-
-<script>
-// ====== Utils ======
-function setStatus(msg, type=""){ 
-  const el = document.getElementById("status");
-  el.textContent = "Estado: " + msg; 
-  el.className = "status " + (type||""); 
-}
-function shortAddr(a){ return a ? a.slice(0,6)+"…"+a.slice(-4) : "–"; }
-function chainName(id){ return Number(id)===56 ? "BSC" : Number(id)===97 ? "BSC Testnet" : "Chain "+id; }
-
-// ====== Detectar proveedor inyectado de forma fiable ======
-function getInjectedProvider() {
-  if (!window.ethereum) return null;
-  // Algunos navegadores/monederos inyectan múltiples proveedores
-  if (window.ethereum.providers?.length) {
-    const mm = window.ethereum.providers.find(p => p.isMetaMask);
-    return mm || window.ethereum.providers[0];
-  }
-  return window.ethereum;
-}
-
-// ====== WalletConnect v2 (solo si no hay inyectado) ======
-let wcProvider;
-async function initWC(){
-  if (wcProvider) return wcProvider;
-  wcProvider = await window.WalletConnectEthereumProvider.init({
-    projectId: "b4feca4564a2101fb8925873d5186274",
-    chains: [56],
-    optionalChains: [56,97],
-    showQrModal: true,
-    rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
-    methods: [
-      "eth_sendTransaction","personal_sign","eth_signTypedData",
-      "eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"
-    ],
-    events: ["chainChanged","accountsChanged","disconnect"]
-  });
-  return wcProvider;
-}
-
-// ====== Estado global (reutiliza tus mismas variables) ======
-let provider, signer, account;
-
-// ====== Conectar wallet ======
-async function connectWallet(){
-  try{
-    setStatus("Conectando…", "warn");
-
-    // 1) Preferimos proveedor inyectado (MetaMask, Brave, Coinbase, etc.)
-    const injected = getInjectedProvider();
-    if (injected) {
-      provider = new ethers.providers.Web3Provider(injected, "any");
-      // solicitud de cuentas (EIP-1102)
-      await provider.send("eth_requestAccounts", []);
-    } else {
-      // 2) Fallback a WalletConnect (QR)
-      const wc = await initWC();
-      await wc.enable(); // abre el modal QR
-      provider = new ethers.providers.Web3Provider(wc, "any");
-    }
-
-    signer = provider.getSigner();
-    account = await signer.getAddress();
-    document.getElementById("walletShort").textContent = shortAddr(account);
-
-    // 3) Forzar / validar red BSC (56)
-    let net = await provider.getNetwork();
-    if (Number(net.chainId) !== 56) {
-      try {
-        await provider.provider.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x38" }]
-        });
-      } catch (e) {
-        if (e.code === 4902) {
-          await provider.provider.request({
-            method:"wallet_addEthereumChain",
-            params:[{
-              chainId:"0x38", chainName:"BNB Smart Chain",
-              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-              rpcUrls:["https://bsc-dataseed.binance.org/"],
-              blockExplorerUrls:["https://bscscan.com/"]
-            }]
-          });
-        } else {
-          throw e;
-        }
-      }
-      net = await provider.getNetwork();
-    }
-    document.getElementById("chainName").textContent = chainName(net.chainId);
-
-    // 4) Listeners
-    provider.provider?.on?.("accountsChanged", (a)=> {
-      if (a && a[0]) {
-        account = a[0];
-        document.getElementById("walletShort").textContent = shortAddr(account);
-      }
-    });
-    provider.provider?.on?.("chainChanged", (cid)=> {
-      document.getElementById("chainName").textContent = chainName(Number(cid));
-    });
-    provider.provider?.on?.("disconnect", ()=> {
-      provider = undefined; signer = undefined; account = null;
-      document.getElementById("walletShort").textContent = "–";
-      document.getElementById("chainName").textContent = "–";
-      setStatus("Desconectado.");
-    });
-
-    setStatus("Wallet conectada.", "ok");
-
-    // Si en tu código cargas parámetros on-chain aquí:
-    if (typeof loadOnchainParams === "function") {
-      await loadOnchainParams();
-      if (typeof onUsdtInput === "function") onUsdtInput();
-    }
-  }catch(e){
-    console.error("Connect error:", e);
-    // Mostrar al usuario el mensaje real del proveedor
-    const msg = e?.data?.message || e?.message || String(e);
-    setStatus("No se pudo conectar la wallet: " + msg, "err");
-  }
-}
-
-// ====== Botón "Cambiar a BSC" (por si el usuario lo pulsa manualmente) ======
-async function switchToBSC(){
-  try{
-    if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
-    await provider.provider.request({
-      method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }]
-    });
-    document.getElementById("chainName").textContent = "BSC";
-    setStatus("Red cambiada a BSC.", "ok");
-  }catch(err){
-    if (err.code === 4902){
-      try{
-        await provider.provider.request({
-          method:"wallet_addEthereumChain",
-          params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-            nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-            rpcUrls:["https://bsc-dataseed.binance.org/"],
-            blockExplorerUrls:["https://bscscan.com/"] }]
-        });
-        setStatus("BSC agregada. Intenta de nuevo.", "ok");
-      }catch(e){ setStatus("No se pudo agregar BSC.", "err"); }
-    }else{
-      setStatus("No se pudo cambiar a BSC: " + (err?.message||err), "err");
-    }
-  }
-}
-
-// ====== Enlazar botones (asegúrate de tener los mismos IDs) ======
-document.getElementById("btnConnect").addEventListener("click", connectWallet);
-document.getElementById("btnSwitch").addEventListener("click", switchToBSC);
-</script>
