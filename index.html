@@ -3,18 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bienestar Coin (BNC) – Preventa Oficial</title>
-  <meta name="description" content="Preventa oficial de Bienestar Coin (BNC) en BNB Smart Chain. 1 USDT = 20 BNC." />
+  <title>Bienestar Coin (BNC) – Preventa Oficial (Trust Wallet)</title>
+  <meta name="description" content="Preventa oficial de Bienestar Coin (BNC) en BNB Smart Chain. Uso exclusivo en Trust Wallet." />
 
   <!-- Ethers.js v5 -->
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-
-  <!-- Intento inicial de WalletConnect (si carga, perfecto) -->
-  <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"></script>
-
-  <!-- Preconnect opcional a CDNs -->
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin>
 
   <style>
     :root{
@@ -65,8 +58,7 @@
     .notag{ display:inline-block; padding:3px 8px; border-radius:999px; background:#1a1410; border:1px solid rgba(245,158,11,.35); color:var(--warn); font-size:12px; }
     .btn[disabled]{ opacity:.6; cursor:not-allowed; }
     .debug{ font-size:11px; color:#aaa; margin-top:8px; white-space:pre-wrap;}
-    .fallback{ display:none; gap:8px; flex-wrap:wrap; }
-    .fallback .btn{ width:auto; padding:10px 12px; font-size:14px; }
+    .hint{ font-size:13px; color:var(--muted); margin-top:6px; }
   </style>
 </head>
 <body>
@@ -75,7 +67,7 @@
     <img class="logo" src="./logo.png" alt="BNC" />
     <div>
       <h1>Bienestar Coin (BNC) – Preventa Oficial</h1>
-      <div class="sub">1 USDT = <b>20 BNC</b> · Mín: 5 USDT · Máx: 50,000 USDT · Red: <b>BSC</b></div>
+      <div class="sub">Uso exclusivo en <b>Trust Wallet (DApp Browser)</b> · Red: <b>BSC</b></div>
     </div>
   </header>
 
@@ -83,13 +75,11 @@
     <div class="grid">
       <div style="display:flex; flex-direction:column; gap:12px">
         <div class="row">
-          <button id="btnConnect" class="btn">Conectar Wallet (Auto)</button>
-          <button id="btnConnectInjected" class="btn alt" title="Usa window.ethereum directamente">Conectar (Inyectado)</button>
+          <button id="btnOpenTrust" class="btn alt">Abrir en Trust Wallet</button>
+          <button id="btnConnectTrust" class="btn">Conectar (Trust)</button>
         </div>
-        <div class="row">
-          <button id="btnConnectWC" class="btn alt" title="Forzar WalletConnect">Conectar (WalletConnect)</button>
-          <button id="btnSwitch"  class="btn alt">Cambiar a BSC</button>
-        </div>
+
+        <div class="hint">Si estás fuera de Trust, toca “Abrir en Trust Wallet”. Si ya estás en el navegador de Trust, usa “Conectar (Trust)”.</div>
 
         <div class="row">
           <span class="pill">Wallet: <b id="walletShort">–</b></span>
@@ -127,13 +117,6 @@
           </div>
         </div>
 
-        <!-- Fallback visible si WalletConnect está bloqueado -->
-        <div id="fallbackRow" class="fallback">
-          <button class="btn alt" id="btnOpenMetaMask">Abrir en MetaMask App</button>
-          <button class="btn alt" id="btnOpenTrust">Abrir en Trust Wallet</button>
-          <button class="btn alt" id="btnOpenBinance">Abrir en Binance Web3 Wallet</button>
-        </div>
-
       </div>
     </div>
   </section>
@@ -142,13 +125,12 @@
 
 <script>
 /* =========================
-   CONFIGURACIÓN DEL PROYECTO
+   CONFIGURACIÓN (BSC + contratos)
    ========================= */
-var ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E";
-var ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955";
-var ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4";
-var CHAIN_ID     = 56;
-var WC_PROJECT_ID= "b4feca4564a2101fb8925873d5186274";
+var ADDR_BNC     = "0xDa7A76879F12824C5E96985F794CDE4F90869D2E"; // BNC
+var ADDR_USDT    = "0x55d398326f99059fF775485246999027B3197955"; // USDT (BSC-PEG 18d)
+var ADDR_PRESALE = "0xCcAc983D6e111f6f21384E40FA1e305C70844fC4"; // Preventa
+var CHAIN_ID     = 56; // BSC mainnet
 
 /* ===== ABIs mínimos ===== */
 var ERC20_ABI = [
@@ -162,14 +144,13 @@ var PRESALE_ABI = [
   "function minUSDT() view returns (uint256)",
   "function maxUSDT() view returns (uint256)",
   "function hardCapUSDT() view returns (uint256)",
-  "function rate() view returns (uint256)"
+  "function rate() view returns (uint256)" // tokens por 1 USDT (entero)
 ];
 
 /* ===== Estado de la app ===== */
-var provider, signer, account = null;
-var wcProvider = null;
+var provider=null, signer=null, account=null;
 var USDT_DEC = 18, BNC_DEC = 18;
-var RATE_SCALED = ethers.utils.parseUnits("20", 18); // fallback
+var RATE_SCALED = ethers.utils.parseUnits("20", 18); // fallback: 20e18
 var USDT_BAL = ethers.constants.Zero;
 var USDT_ALLOW = ethers.constants.Zero;
 
@@ -189,9 +170,8 @@ function diagUpdate(extra){
     var lines = [];
     lines.push("hasEthereum: " + (!!eth));
     if (eth){
-      lines.push("isMetaMask: " + (!!eth.isMetaMask));
       lines.push("isTrust: " + (!!eth.isTrust));
-      lines.push("isCoinbaseWallet: " + (!!eth.isCoinbaseWallet));
+      lines.push("isMetaMask: " + (!!eth.isMetaMask));
       lines.push("selectedAddress: " + (eth.selectedAddress || "—"));
     }
     var el = $("diag");
@@ -201,176 +181,77 @@ function diagUpdate(extra){
   }catch(_){}
 }
 
-/* ===== Deep links (fallback sin WC) ===== */
+/* ===== Deep link para abrir dentro de Trust ===== */
 function currentCleanUrl(){ return location.origin + location.pathname + location.search; }
-function openInMetaMask(){ location.href = "https://metamask.app.link/dapp/" + encodeURIComponent(currentCleanUrl()); }
-function openInTrust(){ location.href    = "https://link.trustwallet.com/open_url?coin_id=20000714&url=" + encodeURIComponent(currentCleanUrl()); }
-function openInBinance(){ location.href  = "bnc://app?action=wallet_web3&url=" + encodeURIComponent(currentCleanUrl()); }
-$("btnOpenMetaMask").addEventListener("click", openInMetaMask);
+function openInTrust(){ location.href = "https://link.trustwallet.com/open_url?coin_id=20000714&url=" + encodeURIComponent(currentCleanUrl()); }
 $("btnOpenTrust").addEventListener("click", openInTrust);
-$("btnOpenBinance").addEventListener("click", openInBinance);
 
-/* ===== Detectar proveedor inyectado ===== */
-function getInjectedProvider(){
-  if (!window.ethereum) return null;
-  if (window.ethereum.providers && window.ethereum.providers.length){
-    for (var i=0;i<window.ethereum.providers.length;i++){
-      var p = window.ethereum.providers[i];
-      if (p && p.isMetaMask) return p;
-    }
-    return window.ethereum.providers[0];
-  }
-  return window.ethereum;
+/* ===== Detectar proveedor inyectado de Trust ===== */
+function isTrustEnv(){
+  var eth = (typeof window!=="undefined") ? window.ethereum : null;
+  var ua = (typeof navigator!=="undefined" && navigator.userAgent) ? navigator.userAgent : "";
+  return !!(eth && (eth.isTrust || /TrustWallet/i.test(ua)));
 }
 
-/* ===== WalletConnect UMD util ===== */
-function getWCEthereumProviderInit(){
-  if (window.WalletConnectProvider && window.WalletConnectProvider.EthereumProvider && window.WalletConnectProvider.EthereumProvider.init) return window.WalletConnectProvider.EthereumProvider.init;
-  if (window.WalletConnectProvider && window.WalletConnectProvider["default"] && window.WalletConnectProvider["default"].init) return window.WalletConnectProvider["default"].init;
-  if (window.WalletConnectEthereumProvider && window.WalletConnectEthereumProvider.init) return window.WalletConnectEthereumProvider.init;
-  if (window.EthereumProvider && window.EthereumProvider.init) return window.EthereumProvider.init;
-  return null;
-}
-function loadScript(src){ return new Promise(function(res,rej){ var s=document.createElement("script"); s.src=src; s.async=true; s.defer=true; s.crossOrigin="anonymous"; s.onload=res; s.onerror=function(){rej(new Error("error: "+src));}; document.head.appendChild(s); }); }
-async function ensureWCUmd(){
-  if (getWCEthereumProviderInit()) return true;
-  try{ await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"); }catch(_){}
-  if (getWCEthereumProviderInit()) return true;
-  try{ await loadScript("https://unpkg.com/@walletconnect/ethereum-provider@2.11.2/dist/index.umd.min.js"); }catch(_){}
-  return !!getWCEthereumProviderInit();
-}
-
-/* ===== Conexión por INYECTADO ===== */
-async function connectInjectedOnly(){
+/* ===== Conectar solo con Trust (inyectado) ===== */
+async function connectTrust(){
   try{
     diagUpdate();
-    if (!window.ethereum) {
-      setStatus("No hay proveedor inyectado disponible.", "warn");
+    if (!isTrustEnv()){
+      setStatus("No estás dentro de Trust Wallet. Toca “Abrir en Trust Wallet”.", "warn");
       return;
     }
-    setStatus("Conectando (inyectado)…", "warn");
+    setStatus("Conectando (Trust)…", "warn");
+
     await window.ethereum.request({ method: "eth_requestAccounts" });
+
     provider = new ethers.providers.Web3Provider(window.ethereum, "any");
     signer   = provider.getSigner();
     account  = await signer.getAddress();
     $("walletShort").textContent = shortAddr(account);
 
-    // Asegura BSC
+    // Asegurar BSC
     var chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
     if (chainIdHex !== "0x38"){
       try{
         await window.ethereum.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
       }catch(e){
-        if (e && e.code === 4902){
+        if (e && e.code===4902){
           await window.ethereum.request({
             method:"wallet_addEthereumChain",
             params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
               nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
               rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
           });
-        }else{
-          throw e;
-        }
+        }else{ throw e; }
       }
     }
 
     var net = await provider.getNetwork();
     $("chainName").textContent = chainName(net.chainId);
 
+    // Listeners clásicos
     if (provider && provider.provider && provider.provider.on){
       provider.provider.on("accountsChanged", function(a){ if (a && a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); } });
       provider.provider.on("chainChanged",  function(cid){ $("chainName").textContent=chainName(Number(cid)); refreshBalances(); });
       provider.provider.on("disconnect",    function(){ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
     }
 
-    setStatus("Wallet conectada (inyectado).", "ok");
+    setStatus("Wallet conectada (Trust).", "ok");
     await loadOnchainParams();
     onUsdtInput();
     await refreshBalances();
 
   }catch(e){
-    setStatus("Fallo conexión inyectado: " + (e && (e.message||e)), "err");
-    diagUpdate("Err(inyectado): " + (e && (e.message||e)));
+    setStatus("Fallo conexión Trust: " + (e && (e.message||e)), "err");
+    diagUpdate("Err(Trust): " + (e && (e.message||e)));
     try{ console.error(e); }catch(_){}
   }
 }
 
-/* ===== Conexión por WALLETCONNECT ===== */
-async function connectWCOnly(){
-  try{
-    setStatus("Conectando (WalletConnect)…", "warn");
-    diagUpdate();
-
-    var ok = await ensureWCUmd();
-    if (!ok) {
-      setStatus("WalletConnect bloqueado por el navegador. Usa los botones de apertura en app.", "warn");
-      var fr = $("fallbackRow"); if (fr) fr.style.display="flex";
-      return;
-    }
-    var wcInit = getWCEthereumProviderInit();
-    wcProvider = await wcInit({
-      projectId: WC_PROJECT_ID,
-      chains: [56],
-      rpcMap: { 56: "https://bsc-dataseed.binance.org/" },
-      showQrModal: true,
-      methods: ["eth_sendTransaction","personal_sign","eth_signTypedData","eth_requestAccounts","wallet_switchEthereumChain","wallet_addEthereumChain"],
-      events: ["chainChanged","accountsChanged","disconnect"]
-    });
-
-    await wcProvider.enable();
-    provider = new ethers.providers.Web3Provider(wcProvider, "any");
-    signer   = provider.getSigner();
-    account  = await signer.getAddress();
-    $("walletShort").textContent = shortAddr(account);
-
-    var net = await provider.getNetwork();
-    if (Number(net.chainId)!==56){
-      try{
-        await provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] });
-      }catch(e){
-        if (e && e.code===4902){
-          await provider.provider.request({
-            method:"wallet_addEthereumChain",
-            params:[{ chainId:"0x38", chainName:"BNB Smart Chain",
-              nativeCurrency:{ name:"BNB", symbol:"BNB", decimals:18 },
-              rpcUrls:["https://bsc-dataseed.binance.org/"], blockExplorerUrls:["https://bscscan.com/"] }]
-          });
-        } else { throw e; }
-      }
-      net = await provider.getNetwork();
-    }
-    $("chainName").textContent = chainName(net.chainId);
-
-    if (provider && provider.provider && provider.provider.on){
-      provider.provider.on("accountsChanged", function(a){ if(a && a[0]){ account=a[0]; $("walletShort").textContent=shortAddr(account); refreshBalances(); } });
-      provider.provider.on("chainChanged",  function(cid){ $("chainName").textContent=chainName(Number(cid)); refreshBalances(); });
-      provider.provider.on("disconnect",    function(){ provider=signer=account=null; $("walletShort").textContent="–"; $("chainName").textContent="–"; setStatus("Desconectado."); resetMini(); });
-    }
-
-    setStatus("Wallet conectada (WC).", "ok");
-    await loadOnchainParams();
-    onUsdtInput();
-    await refreshBalances();
-
-  }catch(e){
-    setStatus("Fallo WalletConnect: " + (e && (e.message||e)), "err");
-    diagUpdate("Err(WC): " + (e && (e.message||e)));
-    try{ console.error(e); }catch(_){}
-  }
-}
-
-/* ===== Ruta automática ===== */
-async function connectAuto(){
-  if (window.ethereum) return connectInjectedOnly();
-  var ok = await ensureWCUmd();
-  if (ok) return connectWCOnly();
-  setStatus("No hay inyectado ni WalletConnect. Abre la dApp dentro de tu wallet.", "warn");
-  var fr = $("fallbackRow"); if (fr) fr.style.display="flex";
-}
-
-/* ===== Cambiar a BSC ===== */
+/* ===== Cambiar a BSC manual (por si acaso) ===== */
 function switchToBSC(){
-  if (!provider) return setStatus("Conecta tu wallet primero.", "warn");
+  if (!provider) return setStatus("Conecta tu wallet primero (Trust).", "warn");
   provider.provider.request({ method:"wallet_switchEthereumChain", params:[{ chainId:"0x38" }] })
     .then(function(){ $("chainName").textContent="BSC"; setStatus("Red cambiada a BSC.","ok"); refreshBalances(); })
     .catch(function(err){
@@ -386,7 +267,7 @@ function switchToBSC(){
     });
 }
 
-/* ===== On-chain params ===== */
+/* ===== Leer parámetros on-chain ===== */
 function loadOnchainParams(){
   return new Promise(function(resolve){
     try{
@@ -397,6 +278,8 @@ function loadOnchainParams(){
 
       usdt.decimals().then(function(n){ USDT_DEC = Number(n); }).catch(function(){ USDT_DEC = 18; });
       bnc.decimals().then(function(n){ BNC_DEC = Number(n); }).catch(function(){ BNC_DEC = 18; });
+
+      // rate() entero -> escalar a 1e18 para cálculo estable
       sale.rate().then(function(r){ if (r && r.gt && r.gt(0)) RATE_SCALED = r.mul(ethers.constants.WeiPerEther); }).catch(function(){});
 
       setTimeout(resolve, 250);
@@ -469,7 +352,7 @@ function updateApprovalUI(requiredWei){
 
 /* ===== Aprobar / Comprar ===== */
 function approveUSDT(){
-  if (!provider || !signer) return setStatus("Conecta tu wallet primero.","warn");
+  if (!provider || !signer) return setStatus("Conecta tu wallet (Trust).","warn");
   var amountStr=$("usdtInput").value.trim();
   if (!amountStr || Number(amountStr)<=0) return setStatus("Ingresa un monto válido.","warn");
 
@@ -482,7 +365,7 @@ function approveUSDT(){
     if (amt.lt(minUSDT)) return setStatus("Monto menor al mínimo permitido.","warn");
     if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.","warn");
 
-    setStatus("Aprobando USDT… firma en tu wallet.","warn");
+    setStatus("Aprobando USDT… firma en Trust.","warn");
     $("btnApprove").disabled=true;
     return usdt.approve(ADDR_PRESALE,amt).then(function(tx){ return tx.wait(); })
       .then(function(){
@@ -499,7 +382,7 @@ function approveUSDT(){
 }
 
 function buyBNC(){
-  if (!provider || !signer) return setStatus("Conecta tu wallet primero.","warn");
+  if (!provider || !signer) return setStatus("Conecta tu wallet (Trust).","warn");
   var amountStr=$("usdtInput").value.trim();
   if (!amountStr || Number(amountStr)<=0) return setStatus("Ingresa un monto válido.","warn");
 
@@ -513,7 +396,7 @@ function buyBNC(){
     if (amt.gt(maxUSDT)) return setStatus("Monto mayor al máximo permitido.","warn");
     if (USDT_ALLOW.lt && USDT_ALLOW.lt(amt)) return setStatus("Falta aprobar suficiente USDT.","warn");
 
-    setStatus("Enviando compra… firma en tu wallet.","warn");
+    setStatus("Enviando compra… firma en Trust.","warn");
     $("btnBuy").disabled=true;
     presale.buyWithUSDT(amt).then(function(tx){ return tx.wait(); })
       .then(function(){ setStatus("¡Compra exitosa! Recibirás tus BNC en tu wallet.","ok"); return refreshBalances(); })
@@ -527,17 +410,24 @@ function buyBNC(){
 }
 
 /* ===== Eventos ===== */
-$("btnConnect").addEventListener("click", connectAuto);
-$("btnConnectInjected").addEventListener("click", connectInjectedOnly);
-$("btnConnectWC").addEventListener("click", connectWCOnly);
-$("btnSwitch").addEventListener("click",  switchToBSC);
-$("usdtInput").addEventListener("input",  onUsdtInput);
+$("btnConnectTrust").addEventListener("click", connectTrust);
 $("btnApprove").addEventListener("click", approveUSDT);
 $("btnBuy").addEventListener("click",     buyBNC);
+$("usdtInput").addEventListener("input",  onUsdtInput);
 
 /* ===== Precarga ===== */
 loadOnchainParams().then(onUsdtInput);
 diagUpdate();
+
+// Botón opcional para forzar BSC si ya estás conectado
+document.addEventListener("DOMContentLoaded", function(){
+  var btn = document.createElement("button");
+  btn.textContent = "Forzar red BSC";
+  btn.className = "btn alt";
+  btn.style.marginTop = "8px";
+  btn.onclick = switchToBSC;
+  document.querySelector(".grid > div:last-child").appendChild(btn);
+});
 </script>
 </body>
 </html>
